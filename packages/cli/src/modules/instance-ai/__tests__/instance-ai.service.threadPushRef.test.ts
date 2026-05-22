@@ -72,6 +72,7 @@ describe('InstanceAiService — threadPushRef lifetime', () => {
 			deleteTraceContextsForThread: jest.Mock;
 			destroySandbox: jest.Mock;
 			reapAiTemporaryForThreadCleanup: jest.Mock;
+			dropPendingConfirmationsForThread: jest.Mock;
 			clearThreadState: (threadId: string) => Promise<void>;
 		};
 		const service = Object.create(InstanceAiService.prototype) as unknown as Internals;
@@ -90,6 +91,7 @@ describe('InstanceAiService — threadPushRef lifetime', () => {
 		service.deleteTraceContextsForThread = jest.fn();
 		service.destroySandbox = jest.fn(async () => {});
 		service.reapAiTemporaryForThreadCleanup = jest.fn(async () => {});
+		service.dropPendingConfirmationsForThread = jest.fn(async () => {});
 
 		await service.clearThreadState('thread-a');
 
