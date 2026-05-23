@@ -12,7 +12,7 @@ export function formatWorkflowLoopGuidance(
 		case 'ignored':
 			return `STALE REPORT IGNORED: ${action.reason}`;
 		case 'continue_building':
-			return `BUILD FAILED: ${action.reason}. Fix the workflow code and call \`build-workflow\` again.`;
+			return `BUILD FAILED: ${action.reason}. Fix the workflow code and call \`workflows(action="create"|"update")\` again.`;
 		case 'done': {
 			if (action.mockedCredentialTypes?.length || action.hasUnresolvedPlaceholders) {
 				return (
@@ -38,7 +38,7 @@ export function formatWorkflowLoopGuidance(
 		case 'rebuild':
 			return (
 				`REBUILD NEEDED: Workflow "${action.workflowId}" needs structural repair. ` +
-				'Load the `workflow-builder` skill, then call `build-workflow` directly ' +
+				'Load the `workflow-builder` skill, then call `workflows(action="update")` directly ' +
 				`with \`workflowId: "${action.workflowId}"\`. ` +
 				'(no plan — this is a single-task rebuild; `workflowId` is required ' +
 				'so the builder updates the existing workflow instead of creating a duplicate). ' +
@@ -49,7 +49,7 @@ export function formatWorkflowLoopGuidance(
 				`PATCH NEEDED: Node "${action.failedNodeName}" in workflow ${action.workflowId} needs a targeted fix. ` +
 				`Diagnosis: ${action.diagnosis}. ` +
 				(action.patch ? `Suggested fix: ${JSON.stringify(action.patch)}. ` : '') +
-				'Load the `workflow-builder` skill, then call `build-workflow` directly ' +
+				'Load the `workflow-builder` skill, then call `workflows(action="update")` directly ' +
 				`with \`workflowId: "${action.workflowId}"\` and targeted \`patches\`. ` +
 				'(no plan — this is a single-task patch; `workflowId` is required ' +
 				'so the builder updates the existing workflow instead of creating a duplicate).'

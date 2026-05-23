@@ -1412,6 +1412,7 @@ type ResolveConfirmationServiceInternals = {
 		requestId: string,
 		request: { kind: 'approval'; approved: boolean; userInput?: string },
 	) => Promise<boolean>;
+	resumeSuspendedRun: jest.Mock<Promise<boolean>, [string, string, { approved: boolean }]>;
 	revalidateActiveUser: jest.Mock<Promise<User | null>, [string]>;
 	cancelRun: jest.Mock<void, [string]>;
 	runState: {
@@ -1426,6 +1427,9 @@ function createResolveConfirmationService(): ResolveConfirmationServiceInternals
 	const service = Object.create(
 		InstanceAiService.prototype,
 	) as unknown as ResolveConfirmationServiceInternals;
+	service.resumeSuspendedRun = jest.fn<Promise<boolean>, [string, string, { approved: boolean }]>(
+		async () => true,
+	);
 	service.revalidateActiveUser = jest.fn();
 	service.cancelRun = jest.fn();
 	service.runState = {
@@ -1591,6 +1595,7 @@ describe('InstanceAiService — resolveConfirmation', () => {
 	it('resolves the pending sub-agent confirmation when the user is still authorized', async () => {
 		const service = createResolveConfirmationService();
 		service.revalidateActiveUser.mockResolvedValue({ id: 'user-1' } as unknown as User);
+		service.runState.findSuspendedByRequestId.mockReturnValue(undefined);
 		service.runState.resolvePendingConfirmation.mockReturnValue(true);
 
 		const result = await service.resolveConfirmation('user-1', 'req-1', approval);
@@ -1603,6 +1608,27 @@ describe('InstanceAiService — resolveConfirmation', () => {
 		);
 		expect(service.runState.rejectPendingConfirmation).not.toHaveBeenCalled();
 		expect(service.cancelRun).not.toHaveBeenCalled();
+		expect(service.resumeSuspendedRun).not.toHaveBeenCalled();
+	});
+
+	it('resumes matching suspended runs before resolving inline confirmations', async () => {
+		const service = createResolveConfirmationService();
+		service.revalidateActiveUser.mockResolvedValue({ id: 'user-1' } as unknown as User);
+		service.runState.findSuspendedByRequestId.mockReturnValue({
+			threadId: 'thread-1',
+			user: { id: 'user-1' },
+		});
+		service.runState.resolvePendingConfirmation.mockReturnValue(true);
+
+		const result = await service.resolveConfirmation('user-1', 'req-1', approval);
+
+		expect(result).toBe(true);
+		expect(service.resumeSuspendedRun).toHaveBeenCalledWith(
+			'user-1',
+			'req-1',
+			expect.objectContaining({ approved: true }),
+		);
+		expect(service.runState.resolvePendingConfirmation).not.toHaveBeenCalled();
 	});
 });
 

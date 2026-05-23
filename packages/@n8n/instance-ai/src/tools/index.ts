@@ -74,10 +74,6 @@ const loadApplyWorkflowCredentialsTool = lazyMod(
 	() =>
 		require('./workflows/apply-workflow-credentials.tool') as typeof import('./workflows/apply-workflow-credentials.tool'),
 );
-const loadBuildWorkflowTool = lazyMod(
-	() =>
-		require('./workflows/build-workflow.tool') as typeof import('./workflows/build-workflow.tool'),
-);
 const loadWorkflowsTool = lazyMod(
 	() => require('./workflows.tool') as typeof import('./workflows.tool'),
 );
@@ -100,7 +96,6 @@ export function createAllTools(context: InstanceAiContext): InstanceAiToolRegist
 		[DOMAIN_TOOL_IDS.RESEARCH, loadResearchTool().createResearchTool(context)],
 		[DOMAIN_TOOL_IDS.NODES, loadNodesTool().createNodesTool(context)],
 		[DOMAIN_TOOL_IDS.ASK_USER, loadAskUserTool().createAskUserTool()],
-		[DOMAIN_TOOL_IDS.BUILD_WORKFLOW, loadBuildWorkflowTool().createBuildWorkflowTool(context)],
 	];
 
 	if (context.currentUserAttachments?.some(isParseableAttachment)) {
@@ -126,7 +121,6 @@ export function createOrchestratorDomainTools(context: InstanceAiContext): Insta
 		[DOMAIN_TOOL_IDS.RESEARCH, loadResearchTool().createResearchTool(context)],
 		[DOMAIN_TOOL_IDS.NODES, loadNodesTool().createNodesTool(context, 'orchestrator')],
 		[DOMAIN_TOOL_IDS.ASK_USER, loadAskUserTool().createAskUserTool()],
-		[DOMAIN_TOOL_IDS.BUILD_WORKFLOW, loadBuildWorkflowTool().createBuildWorkflowTool(context)],
 	];
 
 	if (context.currentUserAttachments?.some(isParseableAttachment)) {

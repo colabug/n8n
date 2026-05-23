@@ -954,7 +954,7 @@ function classifyToolCategory(name: string): string {
 	if (name.includes('credential')) return 'credential';
 	if (name.includes('browser')) return 'browser';
 	if (name.includes('data-table')) return 'data-table';
-	if (name.includes('workflow') || name === DOMAIN_TOOL_IDS.BUILD_WORKFLOW) {
+	if (name.includes('workflow') || name === DOMAIN_TOOL_IDS.WORKFLOWS) {
 		return 'workflow';
 	}
 	if (name === DOMAIN_TOOL_IDS.NODES || name === 'materialize-node-type') return 'node';

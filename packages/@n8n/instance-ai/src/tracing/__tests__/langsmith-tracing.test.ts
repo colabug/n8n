@@ -1,7 +1,8 @@
-import { createRuntimeSkillRegistry, type BuiltTool } from '@n8n/agents';
+import { createRuntimeSkillRegistry, Tool, type BuiltTool } from '@n8n/agents';
 import type { Context, ContextManager } from '@opentelemetry/api';
 import { jsonParse } from 'n8n-workflow';
 import type * as AsyncHooks from 'node:async_hooks';
+import { z } from 'zod';
 
 import { executeTool } from '../../__tests__/tool-test-utils';
 import { createToolRegistry } from '../../tool-registry';
@@ -1223,9 +1224,9 @@ describe('createInstanceAiTraceContext', () => {
 				systemPrompt: ['line 1', 'line 2', 'line 3', 'line 4'].join('\n').repeat(700),
 				tools: createToolRegistry([
 					[
-						'build-workflow',
+						'workflows',
 						{
-							description: 'Build or patch a workflow from SDK code.',
+							description: 'Manage workflows.',
 							inputSchema: {
 								type: 'object',
 								properties: {
@@ -1255,7 +1256,7 @@ describe('createInstanceAiTraceContext', () => {
 		expect(actorInputs.task).toBe('Build a workflow');
 		expect(actorInputs.model).toBe('anthropic/claude-sonnet-4-6');
 		expect(actorInputs.assigned_tool_count).toBe(1);
-		expect(actorInputs.assigned_tool_names).toEqual(['build-workflow']);
+		expect(actorInputs.assigned_tool_names).toEqual(['workflows']);
 		expect(actorInputs.assigned_tool_schema_hash).toEqual(expect.any(String));
 		expect(actorInputs.runtime_tool_count).toBe(1);
 		expect(actorInputs.runtime_tool_names).toEqual(['workspace_read_file']);
@@ -1272,7 +1273,7 @@ describe('createInstanceAiTraceContext', () => {
 		const spanInputs = jsonParse<Record<string, unknown>>(
 			actorSpan?.attributes['gen_ai.prompt'] as string,
 		);
-		expect(spanInputs.assigned_tool_names).toEqual(['build-workflow']);
+		expect(spanInputs.assigned_tool_names).toEqual(['workflows']);
 		expect(spanInputs.runtime_tool_names).toEqual(['workspace_read_file']);
 		expect(spanInputs.loaded_tool_manifest).toBeUndefined();
 		expect(spanInputs.loaded_tools).toBeUndefined();
@@ -1304,9 +1305,9 @@ describe('createInstanceAiTraceContext', () => {
 					systemPrompt: 'system prompt',
 					tools: createToolRegistry([
 						[
-							'build-workflow',
+							'workflows',
 							{
-								description: 'Build or patch a workflow from SDK code.',
+								description: 'Manage workflows.',
 							} as never,
 						],
 					]),
@@ -1320,7 +1321,7 @@ describe('createInstanceAiTraceContext', () => {
 		expect(actorInputs.model).toBe('anthropic/claude-sonnet-4-6');
 		expect(actorInputs.system_prompt).toBe('system prompt');
 		expect(actorInputs.assigned_tool_count).toBe(1);
-		expect(actorInputs.assigned_tool_names).toEqual(['build-workflow']);
+		expect(actorInputs.assigned_tool_names).toEqual(['workflows']);
 	});
 
 	it('redacts model secrets from agent trace inputs', () => {
@@ -1507,6 +1508,110 @@ describe('createInstanceAiTraceContext', () => {
 			agentRole: 'research',
 			toolName: 'approval-tool',
 			input: { operation: 'workspace-write' },
+			output: {},
+			suspendPayload,
+		});
+	});
+
+	it('records tool builders once the agent builds them', async () => {
+		const writer = new TraceWriter('record-built-tool');
+		const tracing = createTraceReplayOnlyContext();
+		tracing.replayMode = 'record';
+		tracing.traceWriter = writer;
+
+		const suspendPayload = {
+			requestId: 'request-1',
+			inputType: 'approval',
+			message: 'Confirm workflow creation',
+		};
+		const approvalTool = new Tool('approval-tool')
+			.description('Requests approval.')
+			.input(z.object({ operation: z.string() }))
+			.suspend(z.object({ requestId: z.string(), inputType: z.string(), message: z.string() }))
+			.resume(z.object({ approved: z.boolean() }))
+			.handler(async (_input, context) => await context.suspend(suspendPayload));
+
+		const wrappedTools = tracing.wrapTools(
+			createToolRegistry([['approval-tool', approvalTool as unknown as BuiltTool]]),
+			{ agentRole: 'orchestrator' },
+		);
+		const wrappedToolBuilder = wrappedTools.get('approval-tool') as unknown as {
+			build(): BuiltTool;
+		};
+		const wrappedTool = wrappedToolBuilder.build();
+
+		const result = await executeTool(
+			wrappedTool,
+			{ operation: 'workflow-create' },
+			{
+				resumeData: undefined,
+				suspend: async (payload: unknown): Promise<never> =>
+					await Promise.resolve({ pending: true, payload } as never),
+			},
+		);
+
+		expect(result).toEqual({ pending: true, payload: suspendPayload });
+		expect(writer.getEvents()[1]).toEqual({
+			kind: 'tool-suspend',
+			stepId: 1,
+			agentRole: 'orchestrator',
+			toolName: 'approval-tool',
+			input: { operation: 'workflow-create' },
+			output: {},
+			suspendPayload,
+		});
+	});
+
+	it('records suspend payload before the runtime interruption unwinds the tool call', async () => {
+		const writer = new TraceWriter('record-suspend-interruption');
+		const tracing = createTraceReplayOnlyContext();
+		tracing.replayMode = 'record';
+		tracing.traceWriter = writer;
+
+		const suspendPayload = {
+			requestId: 'request-1',
+			inputType: 'approval',
+			message: 'Confirm workflow creation',
+		};
+		const interruptibleTool: BuiltTool = {
+			name: 'approval-tool',
+			description: 'Requests approval.',
+			suspendSchema: {},
+			handler: async (_input, context) => {
+				if (!('suspend' in context) || typeof context.suspend !== 'function') {
+					throw new Error('Expected interruptible tool context');
+				}
+				return await context.suspend(suspendPayload);
+			},
+		};
+
+		const wrappedTools = tracing.wrapTools(
+			createToolRegistry([['approval-tool', interruptibleTool]]),
+			{ agentRole: 'orchestrator' },
+		);
+		const wrappedTool = wrappedTools.get('approval-tool');
+		if (!isExecutableTool(wrappedTool)) {
+			throw new Error('Wrapped approval-tool is not executable');
+		}
+
+		await expect(
+			executeTool(
+				wrappedTool,
+				{ operation: 'workflow-create' },
+				{
+					resumeData: undefined,
+					suspend: async (): Promise<never> => await Promise.reject(new Error('stream suspended')),
+				},
+			),
+		).rejects.toThrow('stream suspended');
+
+		const suspend = writer.getEvents()[1] as TraceToolSuspend;
+		expect(suspend).toEqual({
+			kind: 'tool-suspend',
+			stepId: 1,
+			agentRole: 'orchestrator',
+			toolName: 'approval-tool',
+			input: { operation: 'workflow-create' },
 			output: {},
 			suspendPayload,
 		});

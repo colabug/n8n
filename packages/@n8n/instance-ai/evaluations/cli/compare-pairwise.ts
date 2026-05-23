@@ -140,8 +140,17 @@ function isErroredIAToolCall(trace: IAToolCallTrace): boolean {
 	return false;
 }
 
-function isWorkflowSaveTool(toolName: string): boolean {
-	return toolName === 'build-workflow' || toolName === 'submit-workflow';
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isWorkflowSaveTool(trace: Pick<IAToolCallTrace, 'toolName' | 'args'>): boolean {
+	const args = isRecord(trace.args) ? trace.args : {};
+	return (
+		trace.toolName === 'build-workflow' ||
+		trace.toolName === 'submit-workflow' ||
+		(trace.toolName === 'workflows' && (args.action === 'create' || args.action === 'update'))
+	);
 }
 
 interface IASummary {
@@ -196,7 +205,7 @@ async function loadInstanceAiRun(dir: string): Promise<BuilderRun> {
 			feedback: r.feedback,
 			tokenInput: r.build.tokenUsage?.input,
 			tokenOutput: r.build.tokenUsage?.output,
-			submitCalls: tcs.filter((tc) => isWorkflowSaveTool(tc.toolName)).length,
+			submitCalls: tcs.filter(isWorkflowSaveTool).length,
 			toolCallErrors: tcs.filter(isErroredIAToolCall).length,
 			toolCallsTotal: tcs.length,
 			toolCalls: tcs,
@@ -894,7 +903,7 @@ function renderMetricsNote(): string {
   <span><b>Average diagnostic</b> — mean diagnostic score across the dataset. Range 0–1; gives partial credit where the runner emits it.</span>
   <span><b>Average build time</b> — averaged across all attempts including failures, so build timeouts (20-min cap) inflate this number.</span>
   <span><b>Tool error rate</b> — fraction of tool calls that errored or returned a failed result. Captures build-path roughness even on builds that eventually succeeded. <i>IA-only.</i></span>
-  <span><b>Avg workflow saves</b> — mean <code>build-workflow</code>/<code>submit-workflow</code> invocations per build. 1.0 = clean first-try save. <i>IA-only.</i></span>
+	  <span><b>Avg workflow saves</b> — mean workflow create/update invocations per build. 1.0 = clean first-try save. <i>IA-only.</i></span>
   <span><b>Verdicts</b> compare per-prompt primary pass between the two builders.</span>
 </aside>`;
 }

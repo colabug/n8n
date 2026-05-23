@@ -137,7 +137,7 @@ describe('report-verification-verdict tool', () => {
 		});
 		expect((result as { guidance: string }).guidance).toContain('PATCH NEEDED');
 		expect((result as { guidance: string }).guidance).toContain('workflowId: "wf-123"');
-		expect((result as { guidance: string }).guidance).toContain('build-workflow');
+		expect((result as { guidance: string }).guidance).toContain('workflows(action="update")');
 		expect((result as { guidance: string }).guidance).toContain('patch');
 	});
 
@@ -317,7 +317,7 @@ describe('report-verification-verdict tool', () => {
 
 		expect((result as { guidance: string }).guidance).toContain('REBUILD NEEDED');
 		expect((result as { guidance: string }).guidance).toContain('workflow-builder');
-		expect((result as { guidance: string }).guidance).toContain('build-workflow');
+		expect((result as { guidance: string }).guidance).toContain('workflows(action="update")');
 		expect((result as { guidance: string }).guidance).toContain('workflowId: "wf-123"');
 	});
 

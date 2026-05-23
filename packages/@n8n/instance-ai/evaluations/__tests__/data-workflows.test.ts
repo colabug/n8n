@@ -11,10 +11,6 @@ const mockedReaddir = jest.mocked(readdirSync);
 const mockedReadFile = jest.mocked(readFileSync);
 
 const FAKE_FILES = [
-	'builder-http-bearer-auth.json',
-	'builder-schedule-to-email.json',
-	'builder-switch-fallback-routing.json',
-	'builder-webhook-to-slack.json',
 	'contact-form-automation.json',
 	'cross-team-linear-report.json',
 	'daily-slack-summary.json',
@@ -22,6 +18,10 @@ const FAKE_FILES = [
 	'github-notion-sync.json',
 	'weather-monitoring.json',
 	'weather-alert.json',
+	'workflow-builder-http-bearer-auth.json',
+	'workflow-builder-schedule-to-email.json',
+	'workflow-builder-switch-fallback-routing.json',
+	'workflow-builder-webhook-to-slack.json',
 	'README.md', // non-json filtered out
 ];
 
@@ -47,10 +47,6 @@ function slugs(filter?: string, exclude?: string): string[] {
 describe('loadWorkflowTestCasesWithFiles', () => {
 	it('returns every .json slug from workflows/ when no filter or exclude is given', () => {
 		expect(slugs()).toEqual([
-			'builder-http-bearer-auth',
-			'builder-schedule-to-email',
-			'builder-switch-fallback-routing',
-			'builder-webhook-to-slack',
 			'contact-form-automation',
 			'cross-team-linear-report',
 			'daily-slack-summary',
@@ -58,6 +54,10 @@ describe('loadWorkflowTestCasesWithFiles', () => {
 			'github-notion-sync',
 			'weather-alert',
 			'weather-monitoring',
+			'workflow-builder-http-bearer-auth',
+			'workflow-builder-schedule-to-email',
+			'workflow-builder-switch-fallback-routing',
+			'workflow-builder-webhook-to-slack',
 		]);
 	});
 
@@ -103,28 +103,28 @@ describe('loadWorkflowTestCasesWithFiles', () => {
 	describe('--exclude', () => {
 		it('removes any slug matching a single token', () => {
 			expect(slugs(undefined, 'weather')).toEqual([
-				'builder-http-bearer-auth',
-				'builder-schedule-to-email',
-				'builder-switch-fallback-routing',
-				'builder-webhook-to-slack',
 				'contact-form-automation',
 				'cross-team-linear-report',
 				'daily-slack-summary',
 				'form-to-hubspot',
 				'github-notion-sync',
+				'workflow-builder-http-bearer-auth',
+				'workflow-builder-schedule-to-email',
+				'workflow-builder-switch-fallback-routing',
+				'workflow-builder-webhook-to-slack',
 			]);
 		});
 
 		it('treats a comma-separated list as OR (any match excludes)', () => {
 			expect(slugs(undefined, 'weather,form-to-hubspot')).toEqual([
-				'builder-http-bearer-auth',
-				'builder-schedule-to-email',
-				'builder-switch-fallback-routing',
-				'builder-webhook-to-slack',
 				'contact-form-automation',
 				'cross-team-linear-report',
 				'daily-slack-summary',
 				'github-notion-sync',
+				'workflow-builder-http-bearer-auth',
+				'workflow-builder-schedule-to-email',
+				'workflow-builder-switch-fallback-routing',
+				'workflow-builder-webhook-to-slack',
 			]);
 		});
 	});

@@ -1171,7 +1171,14 @@ export class InstanceAiService {
 		});
 
 		if (tracing) {
-			await this.configureTraceReplayMode(tracing);
+			if (baseTracing.replayMode !== 'off') {
+				tracing.replayMode = baseTracing.replayMode;
+				tracing.traceWriter = baseTracing.traceWriter;
+				tracing.traceIndex = baseTracing.traceIndex;
+				tracing.idRemapper = baseTracing.idRemapper;
+			} else {
+				await this.configureTraceReplayMode(tracing);
+			}
 			this.storeTraceContext(options.runId, options.threadId, tracing, options.messageGroupId);
 			this.runState.attachTracing(options.threadId, tracing);
 		}
@@ -4048,6 +4055,15 @@ export class InstanceAiService {
 				requestId,
 			});
 			return false;
+		}
+
+		const suspended = this.runState.findSuspendedByRequestId(requestId);
+		if (suspended?.user.id === freshUser.id) {
+			this.logger.debug('Resuming suspended run confirmation', {
+				requestId,
+				approved: data.approved,
+			});
+			return await this.resumeSuspendedRun(requestingUserId, requestId, data);
 		}
 
 		if (this.runState.resolvePendingConfirmation(freshUser.id, requestId, data)) {

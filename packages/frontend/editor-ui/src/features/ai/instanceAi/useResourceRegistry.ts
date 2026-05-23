@@ -41,8 +41,8 @@ function optionalString(val: unknown): string | undefined {
  * optional fields provided by the new call win; fields it omits are preserved
  * from the existing entry. Callers are responsible for resolving `name` using
  * the existing entry as a fallback so partial updates (e.g. a patch
- * `build-workflow` call that carries only a `workflowId`) don't regress a
- * known name to 'Untitled'.
+ * workflow mutation that carries only a `workflowId`) don't regress a known
+ * name to 'Untitled'.
  */
 function recordProduced(col: Collections, entry: ResourceEntry): void {
 	const existing = col.produced.get(entry.id);
@@ -84,7 +84,6 @@ function entryFromListItem(
 
 /** Tools whose results may contain resource info (workflows, credentials, data tables). */
 const ARTIFACT_TOOLS = new Set([
-	'build-workflow',
 	'apply-workflow-credentials',
 	'workflows',
 	'credentials',
@@ -98,6 +97,9 @@ function extractFromToolCall(tc: InstanceAiToolCallState, col: Collections): voi
 	if (!ARTIFACT_TOOLS.has(tc.toolName)) return;
 	if (!tc.result || typeof tc.result !== 'object') return;
 	const result = tc.result as Record<string, unknown>;
+	const action = optionalString(tc.args?.action);
+	const isWorkflowMutation =
+		tc.toolName === 'workflows' && (action === 'create' || action === 'update');
 
 	// --- Workflows --------------------------------------------------------
 	// List result: { workflows: [{ id, name }, ...] } — index by name only.
@@ -108,10 +110,10 @@ function extractFromToolCall(tc: InstanceAiToolCallState, col: Collections): voi
 		}
 	}
 
-	// build-workflow:
+	// Workflow create/update result:
 	// { workflowId, workflowName? } — produced. Patch calls may omit the name,
 	// so fall back to the existing entry before regressing to 'Untitled'.
-	if (typeof result.workflowId === 'string') {
+	if (isWorkflowMutation && typeof result.workflowId === 'string') {
 		const existing = col.produced.get(result.workflowId);
 		const name =
 			optionalString(result.workflowName) ??

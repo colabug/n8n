@@ -141,7 +141,7 @@ function buildToolCallState(invocation: StoredToolInvocation): InstanceAiToolCal
 		args: invocation.args,
 		result: isCompleted ? invocation.result : undefined,
 		isLoading: !isCompleted,
-		renderHint: getRenderHint(invocation.toolName),
+		renderHint: getRenderHint(invocation.toolName, invocation.args),
 	};
 }
 

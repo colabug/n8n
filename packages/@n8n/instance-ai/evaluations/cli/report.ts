@@ -195,11 +195,20 @@ function isErroredToolCall(trace: ToolCallTrace): boolean {
 
 function countSubmitCalls(traces: ToolCallTrace[] | undefined): number {
 	if (!traces) return 0;
-	return traces.filter((t) => isWorkflowSaveTool(t.toolName)).length;
+	return traces.filter(isWorkflowSaveTool).length;
 }
 
-function isWorkflowSaveTool(toolName: string): boolean {
-	return toolName === 'build-workflow' || toolName === 'submit-workflow';
+function isWorkflowSaveTool(trace: Pick<ToolCallTrace, 'toolName' | 'args'>): boolean {
+	const args = isRecord(trace.args) ? trace.args : {};
+	return (
+		trace.toolName === 'build-workflow' ||
+		trace.toolName === 'submit-workflow' ||
+		(trace.toolName === 'workflows' && (args.action === 'create' || args.action === 'update'))
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function countToolCallErrors(traces: ToolCallTrace[] | undefined): number {

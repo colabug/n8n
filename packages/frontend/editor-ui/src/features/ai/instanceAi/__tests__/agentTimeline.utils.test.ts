@@ -3,12 +3,16 @@ import type { InstanceAiAgentNode, InstanceAiToolCallState } from '@n8n/api-type
 import { extractArtifacts } from '../agentTimeline.utils';
 
 function makeToolCall(overrides: Partial<InstanceAiToolCallState>): InstanceAiToolCallState {
+	const defaultArgs =
+		overrides.toolName === 'workflows'
+			? { action: 'create', ...(overrides.args ?? {}) }
+			: (overrides.args ?? {});
 	return {
 		toolCallId: 'tc-1',
 		toolName: 'some-tool',
-		args: {},
 		isLoading: false,
 		...overrides,
+		args: defaultArgs,
 	};
 }
 
@@ -85,11 +89,12 @@ describe('extractArtifacts', () => {
 		expect(extractArtifacts(node)).toEqual([]);
 	});
 
-	test('returns workflow artifact from build-workflow tool call', () => {
+	test('returns workflow artifact from workflows create tool call', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
+					args: { action: 'create' },
 					result: { workflowId: 'wf-2', workflowName: 'Built WF' },
 					completedAt: '2026-01-01T00:00:00Z',
 				}),
@@ -110,8 +115,8 @@ describe('extractArtifacts', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
-					args: { name: 'Name From Args' },
+					toolName: 'workflows',
+					args: { action: 'update', name: 'Name From Args' },
 					result: { workflowId: 'wf-4' },
 				}),
 			],
@@ -123,7 +128,8 @@ describe('extractArtifacts', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
+					args: { action: 'update' },
 					result: { workflowId: 'wf-5' },
 				}),
 			],
@@ -183,7 +189,7 @@ describe('extractArtifacts', () => {
 			targetResource: { id: 'wf-1', type: 'workflow', name: 'WF From Target' },
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { workflowId: 'wf-1', workflowName: 'WF From ToolCall' },
 				}),
 			],
@@ -198,7 +204,7 @@ describe('extractArtifacts', () => {
 			agentId: 'child-1',
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { workflowId: 'wf-child', workflowName: 'Child WF' },
 				}),
 			],
@@ -207,7 +213,7 @@ describe('extractArtifacts', () => {
 			children: [child],
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { workflowId: 'wf-parent', workflowName: 'Parent WF' },
 				}),
 			],
@@ -222,7 +228,7 @@ describe('extractArtifacts', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: undefined,
 				}),
 			],

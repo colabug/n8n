@@ -42,8 +42,9 @@ function makeToolCall(
 	agentId: string,
 	toolCallId: string,
 	toolName: string,
+	args: Record<string, unknown> = {},
 ): Extract<InstanceAiEvent, { type: 'tool-call' }> {
-	return { type: 'tool-call', runId, agentId, payload: { toolCallId, toolName, args: {} } };
+	return { type: 'tool-call', runId, agentId, payload: { toolCallId, toolName, args } };
 }
 
 function makeToolResult(
@@ -334,7 +335,10 @@ describe('agent-run-reducer', () => {
 
 		it('applies rich render hints to special tools', () => {
 			const state = stateWithRun('run-1', 'root');
-			reduceEvent(state, makeToolCall('run-1', 'root', 'tc-builder', 'build-workflow'));
+			reduceEvent(
+				state,
+				makeToolCall('run-1', 'root', 'tc-builder', 'workflows', { action: 'create' }),
+			);
 			reduceEvent(state, makeToolCall('run-1', 'root', 'tc-research', 'research-with-agent'));
 			reduceEvent(state, makeToolCall('run-1', 'root', 'tc-eval-setup', 'eval-setup-with-agent'));
 			reduceEvent(state, makeToolCall('run-1', 'root', 'tc-skill', 'load_skill'));
@@ -599,7 +603,7 @@ describe('agent-run-reducer', () => {
 			const state = stateWithRun('run-1', 'root');
 			reduceEvent(state, makeTextDelta('run-1', 'root', 'hello'));
 			reduceEvent(state, makeAgentSpawned('run-1', 'sub-1', 'root', 'builder', ['build']));
-			reduceEvent(state, makeToolCall('run-1', 'sub-1', 'tc-1', 'build-workflow'));
+			reduceEvent(state, makeToolCall('run-1', 'sub-1', 'tc-1', 'workflows', { action: 'create' }));
 			reduceEvent(state, makeToolResult('run-1', 'sub-1', 'tc-1', 'ok'));
 			reduceEvent(state, makeAgentCompleted('run-1', 'sub-1', 'built'));
 			reduceEvent(state, makeRunFinish('run-1', 'root', 'completed'));

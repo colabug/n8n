@@ -108,6 +108,8 @@ describe('workflows tool', () => {
 			'list',
 			'get',
 			'get-as-code',
+			'create',
+			'update',
 		] as const satisfies readonly WorkflowAction[];
 
 		it('should support get-as-code on full surface', async () => {
@@ -160,6 +162,13 @@ describe('workflows tool', () => {
 			[{ action: 'unpublish', workflowId: 'w1' }],
 			[{ action: 'delete', workflowId: 'w1' }],
 			[{ action: 'unarchive', workflowId: 'w1' }],
+			[
+				{
+					action: 'update-json',
+					workflowId: 'w1',
+					workflow: { name: 'Test WF', nodes: [], connections: {} },
+				},
+			],
 			[{ action: 'list-versions', workflowId: 'w1' }],
 			[{ action: 'get-version', workflowId: 'w1', versionId: 'v1' }],
 			[{ action: 'restore-version', workflowId: 'w1', versionId: 'v1' }],
@@ -187,6 +196,35 @@ describe('workflows tool', () => {
 
 			expect(schema.safeParse({ action: 'publish', workflowId: 'w1' }).success).toBe(false);
 			expect(context.workflowService.publish).not.toHaveBeenCalled();
+		});
+
+		it('should let the orchestrator inspect SDK code and use builder-backed writes but not update raw workflow JSON', () => {
+			const context = createMockContext();
+			const tool = createWorkflowsTool(context, 'orchestrator');
+			const schema = getInputSchema(tool);
+
+			expect(schema.safeParse({ action: 'get-as-code', workflowId: 'w1' }).success).toBe(true);
+			expect(
+				schema.safeParse({ action: 'create', name: 'Test WF', code: 'export default workflow()' })
+					.success,
+			).toBe(true);
+			expect(
+				schema.safeParse({
+					action: 'update',
+					workflowId: 'w1',
+					patches: [{ old_str: 'old', new_str: 'new' }],
+				}).success,
+			).toBe(true);
+			expect(
+				schema.safeParse({
+					action: 'update-json',
+					workflowId: 'w1',
+					workflow: { name: 'Test WF', nodes: [], connections: {} },
+				}).success,
+			).toBe(false);
+			expect(getDescription(tool)).toContain('convert existing workflows to TypeScript SDK code');
+			expect(getDescription(tool)).toContain('update from workflow SDK code or patches');
+			expect(getDescription(tool)).not.toContain('save a modified WorkflowJSON');
 		});
 	});
 

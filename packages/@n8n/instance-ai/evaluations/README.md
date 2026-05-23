@@ -111,11 +111,11 @@ dotenvx run -f ../../../.env.local -- pnpm eval:instance-ai --filter contact-for
 # Multi-iteration for pass@k / pass^k metrics
 dotenvx run -f ../../../.env.local -- pnpm eval:instance-ai --iterations 3
 
-# Pairwise-compatible builder reports over local builder regression fixtures
-dotenvx run -f ../../../.env.local -- pnpm eval:pairwise --filter builder- --verbose
+# Workflow-builder reports over local workflow-builder regression fixtures
+dotenvx run -f ../../../.env.local -- pnpm eval:workflow-builder --verbose
 
-# Historical command name retained for scripts; runs the same builder fixtures through the orchestrator
-dotenvx run -f ../../../.env.local -- pnpm eval:subagent --verbose
+# Same fixtures through the generic pairwise-compatible runner
+dotenvx run -f ../../../.env.local -- pnpm eval:pairwise --filter workflow-builder- --verbose
 ```
 
 ### Flags
@@ -143,18 +143,15 @@ dotenvx run -f ../../../.env.local -- pnpm eval:subagent --verbose
 
 `pnpm eval:pairwise` keeps the historical pairwise CLI affordance and output
 shape while building through Instance AI's main orchestrator. By default it reads
-the `instance-ai-builder-from-plans` LangSmith dataset. Pass `--filter builder-`
-to run the local builder regression fixtures in `evaluations/data/workflows/`.
+the `instance-ai-builder-from-plans` LangSmith dataset. Pass
+`--filter workflow-builder-` to run the local workflow-builder regression
+fixtures in `evaluations/data/workflows/`, or use `pnpm eval:workflow-builder`.
 
 ```bash
-pnpm eval:pairwise --filter builder- --iterations 3 --output-dir .output/pairwise/local-builder
+pnpm eval:workflow-builder --iterations 3 --output-dir .output/pairwise/local-workflow-builder
 pnpm eval:pairwise:report --output-root .output/pairwise
-pnpm eval:pairwise:compare --ee-dir ../ai-workflow-builder.ee/evaluations/.output/pairwise/<ts> --ia-dir .output/pairwise/local-builder --out .output/pairwise/comparison.html
+pnpm eval:pairwise:compare --ee-dir ../ai-workflow-builder.ee/evaluations/.output/pairwise/<ts> --ia-dir .output/pairwise/local-workflow-builder --out .output/pairwise/comparison.html
 ```
-
-The `eval:subagent` script name remains as a compatibility alias for existing
-automation, but it runs the same local builder fixtures through the orchestrator
-rather than spawning a workflow-builder child agent.
 
 ### Outputs
 
@@ -292,9 +289,9 @@ pnpm eval:discovery --filter data-table-skill-loading --trials 3 --verbose --fai
 Verbose output lists each trial's completed tool calls with argument previews.
 For data-table routing, look for `load_skill(skillId="data-table-manager")`
 and `data-tables(action="list")`, and verify there are no planner or delegate
-entries in the spawned-agent section. Workflow building routing is covered by
-orchestrator discovery fixtures that require `load_skill("workflow-builder")`
-and direct `build-workflow` calls.
+	entries in the spawned-agent section. Workflow building routing is covered by
+	orchestrator discovery fixtures that require `load_skill("workflow-builder")`
+	and direct `workflows(action="create"|"update")` calls.
 
 ## How the e2e harness works
 
@@ -317,7 +314,7 @@ When `LANGSMITH_API_KEY` is set, each run is recorded as a LangSmith experiment 
 
 ## Adding test cases
 
-Test cases live in `evaluations/data/workflows/*.json`. Drop a file in, the CLI and LangSmith sync picks it up — no registration step. Builder regression cases live here too now; they run through the same orchestrator path as production rather than a workflow-builder sub-agent harness.
+Test cases live in `evaluations/data/workflows/*.json`. Drop a file in, the CLI and LangSmith sync picks it up — no registration step. Workflow-builder regression cases live here too now; they run through the same orchestrator path as production.
 
 ```json
 {

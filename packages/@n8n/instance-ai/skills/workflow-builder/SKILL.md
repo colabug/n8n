@@ -20,8 +20,8 @@ platforms:
 # Workflow Builder
 
 Use this skill to build, patch, fix, and update n8n workflows in the current
-main-agent turn. Do not delegate, spawn a workflow-builder sub-agent, or call a
-workflow-builder background tool. Workflow building is direct tool use:
+main-agent turn. Do not delegate workflow-building work or call legacy
+workflow-building tools. Workflow building is direct tool use:
 discover context, write SDK code, call `workflows(action="create"|"update")`,
 patch errors, and finish with a concise result.
 

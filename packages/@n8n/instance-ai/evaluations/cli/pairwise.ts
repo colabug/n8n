@@ -184,7 +184,7 @@ async function loadExamples(args: PairwiseArgs, logger: EvalLogger): Promise<Dat
 
 	if (!process.env.LANGSMITH_API_KEY) {
 		throw new Error(
-			'LANGSMITH_API_KEY is required for dataset mode. Pass --filter builder- or --local-workflows to run local workflow fixtures instead.',
+			'LANGSMITH_API_KEY is required for dataset mode. Pass --filter workflow-builder- or --local-workflows to run local workflow fixtures instead.',
 		);
 	}
 
@@ -724,7 +724,7 @@ async function writeCsv(csvPath: string, records: ExampleRecord[]): Promise<void
 	const csvRows = records.map((record) => {
 		const find = (metric: string) =>
 			record.feedback.find((feedback) => feedback.metric === metric)?.score ?? '';
-		const saveCalls = record.toolCalls.filter((tc) => isWorkflowSaveTool(tc.toolName)).length;
+		const saveCalls = record.toolCalls.filter(isWorkflowSaveTool).length;
 		const errors = record.toolCalls.filter(isErroredToolCall).length;
 		return [
 			record.exampleId,
@@ -782,7 +782,7 @@ function summarizeRecords(
 		for (const toolCall of record.toolCalls) {
 			toolCallsTotal++;
 			if (isErroredToolCall(toolCall)) toolCallErrors++;
-			if (isWorkflowSaveTool(toolCall.toolName)) submitCallsTotal++;
+			if (isWorkflowSaveTool(toolCall)) submitCallsTotal++;
 		}
 
 		const primary = record.feedback.find(
@@ -971,8 +971,13 @@ function compareRecords(a: ExampleRecord, b: ExampleRecord): number {
 	return a.exampleId.localeCompare(b.exampleId);
 }
 
-function isWorkflowSaveTool(toolName: string): boolean {
-	return toolName === 'build-workflow' || toolName === 'submit-workflow';
+function isWorkflowSaveTool(trace: Pick<ToolCallTrace, 'toolName' | 'args'>): boolean {
+	const args = isRecord(trace.args) ? trace.args : {};
+	return (
+		trace.toolName === 'build-workflow' ||
+		trace.toolName === 'submit-workflow' ||
+		(trace.toolName === 'workflows' && (args.action === 'create' || args.action === 'update'))
+	);
 }
 
 function isErroredToolCall(trace: ToolCallTrace): boolean {

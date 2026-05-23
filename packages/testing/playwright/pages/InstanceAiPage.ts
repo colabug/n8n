@@ -258,8 +258,7 @@ export class InstanceAiPage extends BasePage {
 
 	/**
 	 * Wait for the workflow build approval and approve it. Builder runs may
-	 * render either the older plan-review panel or the standard tool approval
-	 * row for the direct `build-workflow` skill path.
+	 * render either the plan-review panel or the standard workflows approval row.
 	 */
 	async approveBuildPlan(timeout = 120_000): Promise<void> {
 		const approveButton = this.getPlanApproveButton().or(this.getConfirmApproveButton()).first();

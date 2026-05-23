@@ -3,18 +3,23 @@ import type { InstanceAiAgentNode, InstanceAiToolCallState } from '@n8n/api-type
 import {
 	getLatestBuildResult,
 	getLatestExecutionId,
+	getLatestWorkflowSetupResult,
 	getLatestDataTableResult,
 	getLatestDeletedDataTableId,
 	getExecutionResultsByWorkflow,
 } from '../canvasPreview.utils';
 
 function makeToolCall(overrides: Partial<InstanceAiToolCallState>): InstanceAiToolCallState {
+	const defaultArgs =
+		overrides.toolName === 'workflows'
+			? { action: 'create', ...(overrides.args ?? {}) }
+			: (overrides.args ?? {});
 	return {
 		toolCallId: 'tc-1',
 		toolName: 'some-tool',
-		args: {},
 		isLoading: false,
 		...overrides,
+		args: defaultArgs,
 	};
 }
 
@@ -44,11 +49,11 @@ describe('getLatestBuildResult', () => {
 		expect(getLatestBuildResult(node)).toBeUndefined();
 	});
 
-	test('returns undefined for loading build-workflow call', () => {
+	test('returns undefined for loading workflow create call', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					isLoading: true,
 					result: undefined,
 				}),
@@ -57,11 +62,11 @@ describe('getLatestBuildResult', () => {
 		expect(getLatestBuildResult(node)).toBeUndefined();
 	});
 
-	test('returns undefined for failed build-workflow call', () => {
+	test('returns undefined for failed workflow create call', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: false, errors: ['compile error'] },
 				}),
 			],
@@ -69,12 +74,12 @@ describe('getLatestBuildResult', () => {
 		expect(getLatestBuildResult(node)).toBeUndefined();
 	});
 
-	test('returns workflowId and toolCallId from successful build-workflow call', () => {
+	test('returns workflowId and toolCallId from successful workflow create call', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
 					toolCallId: 'tc-build-1',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-123' },
 				}),
 			],
@@ -90,12 +95,12 @@ describe('getLatestBuildResult', () => {
 			toolCalls: [
 				makeToolCall({
 					toolCallId: 'tc-1',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-old' },
 				}),
 				makeToolCall({
 					toolCallId: 'tc-2',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-new' },
 				}),
 			],
@@ -111,12 +116,12 @@ describe('getLatestBuildResult', () => {
 			toolCalls: [
 				makeToolCall({
 					toolCallId: 'tc-1',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-same' },
 				}),
 				makeToolCall({
 					toolCallId: 'tc-2',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-same' },
 				}),
 			],
@@ -132,7 +137,7 @@ describe('getLatestBuildResult', () => {
 			toolCalls: [
 				makeToolCall({
 					toolCallId: 'tc-child',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-child' },
 				}),
 			],
@@ -150,7 +155,7 @@ describe('getLatestBuildResult', () => {
 			toolCalls: [
 				makeToolCall({
 					toolCallId: 'tc-child',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-child' },
 				}),
 			],
@@ -160,7 +165,7 @@ describe('getLatestBuildResult', () => {
 			toolCalls: [
 				makeToolCall({
 					toolCallId: 'tc-parent',
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-parent' },
 				}),
 			],
@@ -178,7 +183,7 @@ describe('getLatestExecutionId', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-1' },
 				}),
 			],
@@ -260,15 +265,15 @@ describe('getLatestExecutionId', () => {
 		expect(getLatestExecutionId(parent)).toEqual({ executionId: 'exec-child', workflowId: 'wf-1' });
 	});
 
-	test('prefers build-workflow result.workflowId over run-workflow args.workflowId', () => {
+	test('prefers workflow mutation result.workflowId over run-workflow args.workflowId', () => {
 		// Trace replay case: the cached LLM's run-workflow args carry the
-		// recording's stale workflowId, but build-workflow's result always
+		// recording's stale workflowId, but the workflows result always
 		// reflects the workflow actually created in this run.
 		const builder = makeAgentNode({
 			agentId: 'builder-1',
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-real' },
 				}),
 			],
@@ -290,6 +295,26 @@ describe('getLatestExecutionId', () => {
 	});
 });
 
+describe('getLatestWorkflowSetupResult', () => {
+	test('returns workflowId and toolCallId from successful workflows setup call', () => {
+		const node = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolCallId: 'tc-setup',
+					toolName: 'workflows',
+					args: { action: 'setup', workflowId: 'wf-setup' },
+					result: { success: true },
+				}),
+			],
+		});
+
+		expect(getLatestWorkflowSetupResult(node)).toEqual({
+			workflowId: 'wf-setup',
+			toolCallId: 'tc-setup',
+		});
+	});
+});
+
 describe('getLatestDataTableResult', () => {
 	test('returns undefined for node with no tool calls', () => {
 		expect(getLatestDataTableResult(makeAgentNode())).toBeUndefined();
@@ -299,7 +324,7 @@ describe('getLatestDataTableResult', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
-					toolName: 'build-workflow',
+					toolName: 'workflows',
 					result: { success: true, workflowId: 'wf-1' },
 				}),
 			],

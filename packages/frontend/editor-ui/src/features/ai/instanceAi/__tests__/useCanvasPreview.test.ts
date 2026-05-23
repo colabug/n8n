@@ -13,12 +13,16 @@ import type { ResourceEntry } from '../useResourceRegistry';
 // ---------------------------------------------------------------------------
 
 function makeToolCall(overrides: Partial<InstanceAiToolCallState>): InstanceAiToolCallState {
+	const defaultArgs =
+		overrides.toolName === 'workflows'
+			? { action: 'create', ...(overrides.args ?? {}) }
+			: (overrides.args ?? {});
 	return {
 		toolCallId: 'tc-1',
 		toolName: 'some-tool',
-		args: {},
 		isLoading: false,
 		...overrides,
+		args: defaultArgs,
 	};
 }
 
@@ -283,7 +287,7 @@ describe('useCanvasPreview', () => {
 						toolCalls: [
 							makeToolCall({
 								toolCallId: 'tc-build',
-								toolName: 'build-workflow',
+								toolName: 'workflows',
 								result: { success: true, workflowId: 'wf-historical' },
 							}),
 						],
@@ -308,7 +312,7 @@ describe('useCanvasPreview', () => {
 						toolCalls: [
 							makeToolCall({
 								toolCallId: 'tc-build',
-								toolName: 'build-workflow',
+								toolName: 'workflows',
 								result: { success: true, workflowId: 'wf-new' },
 							}),
 						],
@@ -333,7 +337,7 @@ describe('useCanvasPreview', () => {
 						toolCalls: [
 							makeToolCall({
 								toolCallId: 'tc-build',
-								toolName: 'build-workflow',
+								toolName: 'workflows',
 								result: { success: true, workflowId: 'wf-historical' },
 							}),
 						],
@@ -359,7 +363,7 @@ describe('useCanvasPreview', () => {
 						toolCalls: [
 							makeToolCall({
 								toolCallId: 'tc-build',
-								toolName: 'build-workflow',
+								toolName: 'workflows',
 								result: { success: true, workflowId: 'wf-1' },
 							}),
 						],
@@ -385,7 +389,7 @@ describe('useCanvasPreview', () => {
 						toolCalls: [
 							makeToolCall({
 								toolCallId: 'tc-1',
-								toolName: 'build-workflow',
+								toolName: 'workflows',
 								result: { success: true, workflowId: 'wf-1' },
 							}),
 						],

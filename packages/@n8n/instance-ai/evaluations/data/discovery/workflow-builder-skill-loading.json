@@ -8,16 +8,17 @@
 				"argsContainAny": ["workflow-builder"]
 			},
 			{
-				"toolName": "build-workflow",
-				"argsContainAny": ["Lead intake"]
+				"toolName": "workflows",
+				"argsContainAny": ["create", "Lead intake"]
 			}
 		],
 		"noneOf": [
+			"build-workflow",
 			"build-workflow-with-agent",
 			"delegate",
 			"spawn_sub_agent:workflow-builder",
 			"spawn_sub_agent:delegate"
 		]
 	},
-	"rationale": "Regression coverage for replacing the workflow-builder sub-agent with a runtime skill. Workflow building must load workflow-builder and call build-workflow directly without spawning or delegating to a workflow-builder sub-agent."
+	"rationale": "Regression coverage for workflow-builder runtime skill routing. Workflow building must load workflow-builder and call workflows(action=\"create\"|\"update\") directly; the forbidden entries assert legacy workflow-building delegation paths are not used."
 }

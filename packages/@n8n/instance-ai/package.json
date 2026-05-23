@@ -15,7 +15,7 @@
     "eval:pairwise": "tsx evaluations/cli/pairwise.ts",
     "eval:pairwise:report": "tsx evaluations/cli/report.ts",
     "eval:pairwise:compare": "tsx evaluations/cli/compare-pairwise.ts",
-    "eval:subagent": "tsx evaluations/cli/pairwise.ts --filter builder-",
+    "eval:workflow-builder": "tsx evaluations/cli/pairwise.ts --filter workflow-builder-",
     "eval:computer-use": "tsx evaluations/computer-use/cli.ts",
     "eval:discovery": "tsx evaluations/discovery/cli.ts",
     "prompts:print": "tsx scripts/print-prompts.ts"

@@ -6,10 +6,10 @@ through a configured provider: Daytona, the n8n sandbox service, or a local
 development directory.
 
 Workflow building does not use a separate sandbox builder anymore. Workflow
-creation and edits load the `workflow-builder` skill and call `build-workflow`
-directly from the orchestrator. The runtime workspace remains useful for
-workspace-backed skills and local command/file capabilities when the instance
-administrator enables it.
+creation and edits load the `workflow-builder` skill and call
+`workflows(action="create"|"update")` directly from the orchestrator. The
+runtime workspace remains useful for workspace-backed skills and local
+command/file capabilities when the instance administrator enables it.
 
 ## How the Pieces Fit Together
 
@@ -50,9 +50,9 @@ It has no isolation and is blocked in production builds.
 private agent scratch area. The filesystem gateway gives the agent explicit
 access to user machine files and has a separate security model.
 
-**Runtime workspaces are not workflow-builder execution.** The workflow builder
-skill produces SDK code and saves through `build-workflow`; it does not spawn a
-builder sub-agent or use a submit step.
+**Runtime workspaces are not workflow-builder execution.** The workflow-builder
+skill produces SDK code and saves through `workflows(action="create"|"update")`;
+it does not use a submit step.
 
 **Runtime workspaces do not replace product safety controls.** Workflow
 permissions, human-in-the-loop confirmations, and domain access gating remain

@@ -60,7 +60,7 @@ When no search provider is available, `web-search` and `research-with-agent` too
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `N8N_INSTANCE_AI_SANDBOX_ENABLED` | boolean | `false` | Enable the optional runtime workspace for agent filesystem and command capabilities. Workflow building still uses the `workflow-builder` skill and `build-workflow` directly. |
+| `N8N_INSTANCE_AI_SANDBOX_ENABLED` | boolean | `false` | Enable the optional runtime workspace for agent filesystem and command capabilities. Workflow building still uses the `workflow-builder` skill and `workflows(action="create"|"update")` directly. |
 | `N8N_INSTANCE_AI_SANDBOX_PROVIDER` | string | `daytona` | Sandbox provider: `daytona` for isolated Docker containers, `n8n-sandbox` for the n8n sandbox service, `local` for direct host execution (dev only, no isolation). |
 | `DAYTONA_API_URL` | string | `''` | Daytona API URL (e.g. `https://app.daytona.io/api`). Required when provider is `daytona`. |
 | `DAYTONA_API_KEY` | string | `''` | Daytona API key for authentication. Required when provider is `daytona`. |
@@ -71,9 +71,9 @@ When no search provider is available, `web-search` and `research-with-agent` too
 | `N8N_INSTANCE_AI_SANDBOX_NAME_PREFIX` | string | `''` | Prefix prepended to every Daytona sandbox name (e.g. `eval-baseline-daily`). Also surfaced as a `name_prefix` label. Empty in production. |
 
 Workflow building runs in the main orchestrator by loading the
-`workflow-builder` skill and calling `build-workflow` directly. Sandbox
-configuration still controls workspace capabilities for other flows, but there
-is no workflow-builder sub-agent or sandbox submit step.
+`workflow-builder` skill and calling `workflows(action="create"|"update")`
+directly. Sandbox configuration still controls workspace capabilities for other
+flows; workflow saves do not use a separate sandbox submit step.
 
 Sandbox workspaces persist per thread — the same container is reused across messages in a conversation. Workspaces are destroyed on server shutdown.
 

@@ -8,7 +8,7 @@
 // real node metadata — properties, type-definition source, discriminators
 // — rather than a stripped-down stub. Other services (workflows,
 // credentials, executions, data-tables) return minimal canned data — just
-// enough for the `build-workflow` tool path to succeed. The workflow JSON
+// enough for the workflow builder CRUD path to succeed. The workflow JSON
 // is captured via `workflowService.createFromWorkflowJSON` and exposed on
 // the capture array returned from `createStubServices`.
 // ---------------------------------------------------------------------------

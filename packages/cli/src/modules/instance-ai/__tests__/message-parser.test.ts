@@ -409,7 +409,8 @@ describe('parseStoredMessages', () => {
 						{
 							type: 'tool-result',
 							toolCallId: 'tc-2',
-							toolName: 'build-workflow',
+							toolName: 'workflows',
+							input: { action: 'create' },
 							result: 'ok',
 						},
 						{

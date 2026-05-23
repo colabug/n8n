@@ -333,17 +333,10 @@ export function createThreadRuntime(threadId: string, hooks: ThreadRuntimeHooks)
 
 	// --- Session "Always allow" ---
 	// Thread-scoped: cleared by `resetState()` so grants don't leak when the
-	// runtime is disposed and recreated. Key: `${toolName}:${args.action ?? ''}`
-	// for most tools; `build-workflow` is keyed on `workflowId` presence so a
-	// create grant doesn't silently auto-approve later updates (the backend
-	// distinguishes createWorkflow vs updateWorkflow by that field).
+	// runtime is disposed and recreated. Key: `${toolName}:${args.action ?? ''}`.
 	const sessionAlwaysAllowKeys = ref<Set<string>>(new Set());
 
 	function buildAlwaysAllowKey(toolName: string, args: Record<string, unknown>): string {
-		if (toolName === 'build-workflow') {
-			const isUpdate = typeof args.workflowId === 'string' && args.workflowId.length > 0;
-			return `build-workflow:${isUpdate ? 'update' : 'create'}`;
-		}
 		const action = typeof args.action === 'string' ? args.action : '';
 		return `${toolName}:${action}`;
 	}

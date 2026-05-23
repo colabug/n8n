@@ -133,7 +133,7 @@ prompts written by the orchestrator.
 graph TD
     O[Orchestrator Agent] -->|delegate| S1[Sub-Agent: role A]
     O -->|load_skill workflow-builder| SK[Workflow Builder Skill]
-    SK -->|build-workflow| T9[build-workflow]
+    SK -->|create/update| T9[workflows tool]
     O -->|plan| S3[Planned Tasks]
     O -->|direct| T1[list-workflows]
     O -->|direct| T2[run-workflow]
@@ -164,9 +164,9 @@ graph TD
 **Workflow building**:
 - New or multi-workflow requests go through `plan`; approved `build-workflow`
   tasks resume the main orchestrator with the `workflow-builder` skill loaded.
-- Existing workflow edits load `workflow-builder` and call `build-workflow`
-  directly in the current turn.
-- There is no workflow-builder sub-agent.
+- Existing workflow edits load `workflow-builder` and call
+  `workflows(action="update")` directly in the current turn.
+- Workflow saves go through `workflows(action="create"|"update")`.
 
 **Multi-task plans** (`plan` tool):
 - Dependency-aware task graphs with parallel execution
@@ -340,7 +340,7 @@ task has a `kind` that determines its executor:
 
 | Kind | Executor | Tools |
 |------|----------|-------|
-| `build-workflow` | Builder agent | search-nodes, build-workflow, get-node-type-definition, etc. |
+| `build-workflow` | Orchestrator follow-up with `workflow-builder` skill | workflows, nodes, credentials, data-tables, verify-built-workflow, executions |
 | `research` | Research agent | web-search, fetch-url |
 | `delegate` | Custom sub-agent | Orchestrator-specified subset |
 | `checkpoint` | Orchestrator follow-up | verify-built-workflow, executions |

@@ -89,10 +89,6 @@ jest.mock('../workflows/apply-workflow-credentials.tool', () => ({
 	createApplyWorkflowCredentialsTool: jest.fn(() => ({ id: 'apply-workflow-credentials' })),
 }));
 
-jest.mock('../workflows/build-workflow.tool', () => ({
-	createBuildWorkflowTool: jest.fn(() => ({ id: 'build-workflow' })),
-}));
-
 jest.mock('../workflows.tool', () => ({
 	createWorkflowsTool: jest.fn((_context: unknown, options?: unknown) => ({
 		id: options ? 'workflows-filtered' : 'workflows',
@@ -139,7 +135,6 @@ describe('domain tool construction', () => {
 			research: { id: 'research' },
 			nodes: { id: 'nodes' },
 			'ask-user': { id: 'ask-user' },
-			'build-workflow': { id: 'build-workflow' },
 		});
 	});
 
@@ -158,7 +153,6 @@ describe('domain tool construction', () => {
 			research: { id: 'research' },
 			nodes: { id: 'nodes-orchestrator' },
 			'ask-user': { id: 'ask-user' },
-			'build-workflow': { id: 'build-workflow' },
 		});
 
 		const { createWorkflowsTool } = jest.requireMock('../workflows.tool');
