@@ -182,22 +182,19 @@ function handlePlanDeny(tc: InstanceAiToolCallState) {
 	void thread.confirmAction(requestId, { kind: 'planDeny' });
 }
 
-/** Find the latest plan-review confirmation from a planner child's submit-plan tool call.
- *  Prefers pending (isLoading) over resolved — handles revision loops where
- *  multiple submit-plan calls exist. */
-const plannerConfirmation = computed<InstanceAiToolCallState | undefined>(() => {
-	let latest: InstanceAiToolCallState | undefined;
-	for (const child of props.agentNode.children) {
-		if (child.role !== 'planner') continue;
-		for (const tc of child.toolCalls) {
-			if (tc.toolName === 'submit-plan' && tc.confirmation?.inputType === 'plan-review') {
-				if (tc.isLoading) return tc;
-				latest = tc;
-			}
-		}
-	}
-	return latest;
-});
+/** Plan-review confirmation on the orchestrator's `plan` tool call. The cascade
+ *  flow attaches it here (the planner sub-agent's submit-plan confirmation
+ *  event is captured-not-published, so it never reaches the tree). */
+const planToolConfirmation = computed<InstanceAiToolCallState | undefined>(() =>
+	props.agentNode.toolCalls.find((tc) => tc.confirmation?.inputType === 'plan-review'),
+);
+
+/** True when a planner sub-agent has been spawned for this orchestrator turn.
+ *  When present we defer the plan card render to the post-AgentSection slot so
+ *  the planner's collapsed step list appears above the plan card. */
+const hasPlannerChild = computed<boolean>(() =>
+	props.agentNode.children.some((c) => c.role === 'planner'),
+);
 
 /** Map simplified TaskList items to PlannedTaskArg shape for loading preview */
 function mapTaskItemsToPlannedTasks(tasks?: TaskList): PlannedTaskArg[] | undefined {
@@ -249,11 +246,16 @@ function mapTaskItemsToPlannedTasks(tasks?: TaskList): PlannedTaskArg[] | undefi
 				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'data-table'" />
 				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'researcher'" />
 				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'eval-setup'" />
-				<!-- Plan review must match before the planner renderHint suppression:
-				     when the plan tool attaches the confirmation to its own tool call
-				     (no planner child agent), that suppression would otherwise hide it. -->
+				<!-- Plan review fallback for the edge case where the plan tool carries
+				     the cascaded confirmation but no planner child agent was spawned
+				     (e.g. the planner errored before agent-spawned). When a planner
+				     child does exist we defer to the post-AgentSection slot below so
+				     the collapsed step list renders above the plan card. -->
 				<PlanReviewPanel
-					v-else-if="toolCallsById[entry.toolCallId].confirmation?.inputType === 'plan-review'"
+					v-else-if="
+						toolCallsById[entry.toolCallId].confirmation?.inputType === 'plan-review' &&
+						!hasPlannerChild
+					"
 					:key="toolCallsById[entry.toolCallId].confirmation?.requestId"
 					:planned-tasks="
 						toolCallsById[entry.toolCallId].confirmation?.planItems ??
@@ -301,28 +303,32 @@ function mapTaskItemsToPlannedTasks(tasks?: TaskList): PlannedTaskArg[] | undefi
 			>
 				<AgentSection :agent-node="childrenById[entry.agentId]" />
 
-				<!-- Planner child: render PlanReviewPanel below the agent section -->
+				<!-- Planner child: render PlanReviewPanel below the agent section once
+				     the cascaded confirmation arrives on the orchestrator's plan tool.
+				     Before that (while the planner is still adding items) we render a
+				     loading preview seeded from the orchestrator's accumulated
+				     planItems/tasks. -->
 				<PlanReviewPanel
 					v-if="
 						childrenById[entry.agentId].role === 'planner' &&
-						(plannerConfirmation ||
+						(planToolConfirmation ||
 							props.agentNode.planItems?.length ||
 							props.agentNode.tasks?.tasks?.length)
 					"
-					:key="plannerConfirmation?.confirmation?.requestId ?? 'plan-loading'"
+					:key="planToolConfirmation?.confirmation?.requestId ?? 'plan-loading'"
 					:planned-tasks="
-						plannerConfirmation?.confirmation?.planItems ??
+						planToolConfirmation?.confirmation?.planItems ??
 						(props.agentNode.planItems as PlannedTaskArg[] | undefined) ??
 						mapTaskItemsToPlannedTasks(props.agentNode.tasks) ??
 						[]
 					"
-					:loading="!plannerConfirmation"
-					:read-only="!!plannerConfirmation && !plannerConfirmation.isLoading"
-					@approve="plannerConfirmation && handlePlanConfirm(plannerConfirmation, true)"
+					:loading="!planToolConfirmation"
+					:read-only="!!planToolConfirmation && !planToolConfirmation.isLoading"
+					@approve="planToolConfirmation && handlePlanConfirm(planToolConfirmation, true)"
 					@request-changes="
-						(fb) => plannerConfirmation && handlePlanConfirm(plannerConfirmation, false, fb)
+						(fb) => planToolConfirmation && handlePlanConfirm(planToolConfirmation, false, fb)
 					"
-					@deny="plannerConfirmation && handlePlanDeny(plannerConfirmation)"
+					@deny="planToolConfirmation && handlePlanDeny(planToolConfirmation)"
 				/>
 
 				<!-- Artifact cards for completed subagents (skip when inside grouped view) -->
