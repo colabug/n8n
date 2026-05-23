@@ -37,6 +37,7 @@ import {
 	InstanceAiLivenessPolicy,
 	McpClientManager,
 	createDomainAccessTracker,
+	createSubAgentResourceId,
 	BackgroundTaskManager,
 	buildAgentTreeFromEvents,
 	classifyAttachments,
@@ -2843,6 +2844,15 @@ export class InstanceAiService {
 			iterationLog,
 			sendCorrectionToTask: (taskId, correction) =>
 				this.sendCorrectionToTask(threadId, taskId, correction),
+			findSubAgentResumeInfo: async (agentKind) =>
+				await this.checkpointStore.findSuspendedSubAgentResumeInfo(
+					createSubAgentResourceId(threadId, agentKind),
+				),
+			persistInFlightUserMessage: async () => {
+				if (userMessageSaved || !userMessagePersistence) return;
+				userMessageSaved = true;
+				await this.persistUserMessageOnSuspend(threadId, user.id, userMessagePersistence);
+			},
 			workflowTaskService: workflowTasks,
 			workspace: runtimeWorkspace,
 			nodeDefinitionDirs: nodeDefDirs.length > 0 ? nodeDefDirs : undefined,
