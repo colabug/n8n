@@ -77,6 +77,21 @@ outcome explicitly reports setup is required before verification can run.
 In planned build follow-up turns, only perform the save phase and stop. The later
 verification follow-up must apply the verify, patch, and setup phases above.
 
+## Modular Workflows
+
+For complex systems, prefer the approved plan's decomposition over inventing a
+large single workflow. If the plan contains helper workflow tasks followed by a
+main workflow task:
+
+- Build helper workflows as callable sub-workflows with a strict input contract
+  and a clear returned output shape.
+- Use an `executeWorkflowTrigger` node for each helper workflow's entry point.
+- When building the main workflow, read dependency outcomes from the
+  `<planned-task-follow-up>` task list and reference each helper by its
+  `outcome.workflowId` in `executeWorkflow` nodes.
+- Keep simple workflows as one workflow. Do not create extra workflows unless
+  the approved plan or the user's request calls for modular composition.
+
 ## SDK Rules
 
 - Do not use web search to learn workflow SDK syntax. Use this skill, node

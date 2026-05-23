@@ -161,6 +161,27 @@ describe('domain tool construction', () => {
 		expect(createDataTablesTool).toHaveBeenCalledWith(context);
 	});
 
+	it('limits planned workflow-build follow-ups to save-only workflow actions', () => {
+		const context = makeContext({
+			plannedBuildTask: {
+				threadId: 'thread-a',
+				taskId: 'task-build',
+				workItemId: 'wi-1',
+				title: 'Build workflow',
+				spec: 'Build it',
+				plannedTaskService: {},
+			} as unknown as InstanceAiContext['plannedBuildTask'],
+		});
+
+		createOrchestratorDomainTools(context);
+
+		const { createWorkflowsTool } = jest.requireMock('../workflows.tool');
+		expect(createWorkflowsTool).toHaveBeenCalledWith(context, {
+			surface: 'orchestrator',
+			allowedActions: ['list', 'get', 'get-as-code', 'create', 'update'],
+		});
+	});
+
 	it('does not include local MCP server tools in orchestrator domain tools', () => {
 		const context = makeContext({
 			localMcpServer: {} as InstanceAiContext['localMcpServer'],

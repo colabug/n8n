@@ -3233,6 +3233,9 @@ export class InstanceAiService {
 					...context.permissions,
 					...(PLANNED_TASK_PERMISSION_OVERRIDES['build-workflow'] ?? {}),
 				} as typeof context.permissions;
+				if (plannedBuild.workflowId) {
+					context.allowedUpdateWorkflowIds = new Set([plannedBuild.workflowId]);
+				}
 				if (orchestrationContext.plannedTaskService) {
 					context.plannedBuildTask = {
 						threadId,
@@ -3572,6 +3575,7 @@ export class InstanceAiService {
 						tracing,
 						modelId,
 						checkpoint,
+						plannedBuild,
 					});
 				}
 
@@ -4127,6 +4131,7 @@ export class InstanceAiService {
 			modelId,
 			messageGroupId,
 			checkpoint,
+			plannedBuild,
 		} = suspended;
 		if (user.id !== requestingUserId) return false;
 
@@ -4180,6 +4185,7 @@ export class InstanceAiService {
 				...(checkpoint?.isCheckpointFollowUp
 					? { checkpoint_task_id: checkpoint.checkpointTaskId }
 					: {}),
+				...(plannedBuild ? { planned_build_task_id: plannedBuild.taskId } : {}),
 			},
 		});
 
@@ -4195,6 +4201,7 @@ export class InstanceAiService {
 			tracing: resumeTracing ?? tracing,
 			modelId,
 			checkpoint,
+			plannedBuild,
 		});
 		return true;
 	}
@@ -4214,6 +4221,7 @@ export class InstanceAiService {
 			tracing?: InstanceAiTraceContext;
 			modelId?: ModelConfig;
 			checkpoint?: { isCheckpointFollowUp: true; checkpointTaskId: string };
+			plannedBuild?: PlannedBuildFollowUp;
 		},
 	): Promise<void> {
 		let messageTraceFinalization: MessageTraceFinalization | undefined;
@@ -4296,6 +4304,7 @@ export class InstanceAiService {
 						tracing: opts.tracing,
 						...(opts.modelId !== undefined ? { modelId: opts.modelId } : {}),
 						checkpoint: opts.checkpoint,
+						plannedBuild: opts.plannedBuild,
 					});
 				}
 
@@ -4517,6 +4526,12 @@ export class InstanceAiService {
 						opts.user,
 						opts.threadId,
 						opts.checkpoint.checkpointTaskId,
+					);
+				} else if (opts.plannedBuild) {
+					await this.finalizePlannedBuildFollowUp(
+						opts.user,
+						opts.threadId,
+						opts.plannedBuild.taskId,
 					);
 				} else {
 					await this.schedulePlannedTasks(opts.user, opts.threadId);

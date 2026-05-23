@@ -5,6 +5,7 @@ import { isParseableAttachment } from '../parsers/structured-file-parser';
 import { createToolRegistry } from '../tool-registry';
 import type { InstanceAiContext, InstanceAiToolRegistry, OrchestrationContext } from '../types';
 import { DOMAIN_TOOL_IDS, ORCHESTRATION_TOOL_IDS } from './tool-ids';
+import type { WorkflowAction, WorkflowsToolOptions } from './workflows.tool';
 
 const lazyMod = <T>(loader: () => T): (() => T) => {
 	let cached: T | undefined;
@@ -81,6 +82,25 @@ const loadWorkspaceTool = lazyMod(
 	() => require('./workspace.tool') as typeof import('./workspace.tool'),
 );
 
+const PLANNED_BUILD_WORKFLOW_ACTIONS = [
+	'list',
+	'get',
+	'get-as-code',
+	'create',
+	'update',
+] as const satisfies readonly WorkflowAction[];
+
+function getOrchestratorWorkflowsToolOptions(
+	context: InstanceAiContext,
+): 'orchestrator' | WorkflowsToolOptions {
+	if (!context.plannedBuildTask) return 'orchestrator';
+
+	return {
+		surface: 'orchestrator',
+		allowedActions: PLANNED_BUILD_WORKFLOW_ACTIONS,
+	};
+}
+
 /**
  * Creates all native n8n domain tools with the full action surface.
  * Used for delegate/builder tool resolution — sub-agents get unrestricted access.
@@ -112,7 +132,13 @@ export function createAllTools(context: InstanceAiContext): InstanceAiToolRegist
  */
 export function createOrchestratorDomainTools(context: InstanceAiContext): InstanceAiToolRegistry {
 	const tools: Array<[string, BuiltTool]> = [
-		[DOMAIN_TOOL_IDS.WORKFLOWS, loadWorkflowsTool().createWorkflowsTool(context, 'orchestrator')],
+		[
+			DOMAIN_TOOL_IDS.WORKFLOWS,
+			loadWorkflowsTool().createWorkflowsTool(
+				context,
+				getOrchestratorWorkflowsToolOptions(context),
+			),
+		],
 		[DOMAIN_TOOL_IDS.EVALS, loadEvalsTool().createEvalsTool(context)],
 		[DOMAIN_TOOL_IDS.EXECUTIONS, loadExecutionsTool().createExecutionsTool(context)],
 		[DOMAIN_TOOL_IDS.CREDENTIALS, loadCredentialsTool().createCredentialsTool(context)],

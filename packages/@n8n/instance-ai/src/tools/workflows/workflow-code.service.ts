@@ -92,6 +92,19 @@ export type WorkflowCodeUpdateInput = z.infer<typeof workflowCodeUpdateActionSch
 type WorkflowCodeActionInput = WorkflowCodeCreateInput | WorkflowCodeUpdateInput;
 type ResumeData = z.infer<typeof confirmationResumeSchema>;
 type WorkflowCodeDeniedResult = { success: false; denied: true; reason: string };
+type WorkflowSaveMetadata = {
+	triggerNodes: Array<{ nodeName: string; nodeType: string }>;
+	mockedNodeNames?: string[];
+	mockedCredentialTypes?: string[];
+	mockedCredentialsByNode?: Record<string, string[]>;
+	verificationPinData?: Record<string, Array<Record<string, unknown>>>;
+	usesWorkflowPinDataForVerification?: boolean;
+	referencedWorkflowIds?: string[];
+	supportingWorkflowIds?: string[];
+	hasUnresolvedPlaceholders?: boolean;
+	verificationReadiness: WorkflowVerificationReadiness;
+	setupRequirement: WorkflowSetupRequirement;
+};
 
 const WEBHOOK_NODE_TYPES = new Set([
 	'n8n-nodes-base.webhook',
@@ -386,10 +399,112 @@ async function reportPlannedBuildSuccessSafely(
 	}
 }
 
+async function promoteCreatedWorkflowSafely(
+	context: InstanceAiContext,
+	workflowId: string,
+): Promise<string | undefined> {
+	try {
+		await context.workflowService.clearAiTemporary(workflowId);
+		context.aiCreatedWorkflowIds?.delete(workflowId);
+		return undefined;
+	} catch (error) {
+		context.logger?.warn?.('Failed to promote AI-created workflow', {
+			workflowId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return error instanceof Error ? error.message : String(error);
+	}
+}
+
+function buildWorkflowSaveMetadata({
+	workflowId,
+	triggerNodes,
+	mockResult,
+	referencedWorkflowIds,
+	hasUnresolvedPlaceholders,
+}: {
+	workflowId: string;
+	triggerNodes: Array<{ nodeName: string; nodeType: string }>;
+	mockResult: Awaited<ReturnType<typeof resolveCredentials>>;
+	referencedWorkflowIds: string[];
+	hasUnresolvedPlaceholders?: boolean;
+}): WorkflowSaveMetadata {
+	const hasMockedNodeNames = mockResult.mockedNodeNames.length > 0;
+	const hasMockedCredentialTypes = mockResult.mockedCredentialTypes.length > 0;
+	const hasMockedCredentialsByNode = Object.keys(mockResult.mockedCredentialsByNode).length > 0;
+	const hasVerificationPinData = Object.keys(mockResult.verificationPinData).length > 0;
+	const outcomeWithoutRouting: Omit<
+		WorkflowBuildOutcome,
+		'workItemId' | 'summary' | 'verificationReadiness' | 'setupRequirement'
+	> = {
+		workflowId,
+		submitted: true,
+		triggerType: 'manual_or_testable',
+		triggerNodes,
+		needsUserInput: Boolean(
+			hasUnresolvedPlaceholders === true || hasMockedCredentialTypes || hasMockedCredentialsByNode,
+		),
+		...(hasMockedNodeNames ? { mockedNodeNames: mockResult.mockedNodeNames } : {}),
+		...(hasMockedCredentialTypes
+			? { mockedCredentialTypes: mockResult.mockedCredentialTypes }
+			: {}),
+		...(hasMockedCredentialsByNode
+			? { mockedCredentialsByNode: mockResult.mockedCredentialsByNode }
+			: {}),
+		...(hasVerificationPinData ? { verificationPinData: mockResult.verificationPinData } : {}),
+		...(mockResult.usesWorkflowPinDataForVerification
+			? { usesWorkflowPinDataForVerification: true }
+			: {}),
+		...(referencedWorkflowIds.length > 0 ? { supportingWorkflowIds: referencedWorkflowIds } : {}),
+		...(hasUnresolvedPlaceholders !== undefined ? { hasUnresolvedPlaceholders } : {}),
+	};
+
+	return {
+		triggerNodes,
+		...(hasMockedNodeNames ? { mockedNodeNames: mockResult.mockedNodeNames } : {}),
+		...(hasMockedCredentialTypes
+			? { mockedCredentialTypes: mockResult.mockedCredentialTypes }
+			: {}),
+		...(hasMockedCredentialsByNode
+			? { mockedCredentialsByNode: mockResult.mockedCredentialsByNode }
+			: {}),
+		...(hasVerificationPinData ? { verificationPinData: mockResult.verificationPinData } : {}),
+		...(mockResult.usesWorkflowPinDataForVerification
+			? { usesWorkflowPinDataForVerification: true }
+			: {}),
+		...(referencedWorkflowIds.length > 0
+			? { referencedWorkflowIds, supportingWorkflowIds: referencedWorkflowIds }
+			: {}),
+		...(hasUnresolvedPlaceholders !== undefined ? { hasUnresolvedPlaceholders } : {}),
+		verificationReadiness: determineDirectVerificationReadiness(outcomeWithoutRouting),
+		setupRequirement: determineDirectSetupRequirement(outcomeWithoutRouting),
+	};
+}
+
 export function createWorkflowCodeService(context: InstanceAiContext) {
-	// Keeps the last code submitted (or patched) so patches work even before save,
-	// and always match the LLM's own code — not a roundtripped version.
-	let lastCode: string | null = null;
+	// Keep code per workflow so patch-mode never crosses workflow boundaries.
+	const lastCodeByWorkflowId = new Map<string, string>();
+	let lastCreateCode: string | null = null;
+
+	function rememberCode(workflowId: string | undefined, code: string): void {
+		if (workflowId) {
+			lastCodeByWorkflowId.set(workflowId, code);
+		} else {
+			lastCreateCode = code;
+		}
+	}
+
+	async function getPatchBaseCode(workflowId: string | undefined) {
+		if (!workflowId) return lastCreateCode;
+
+		let baseCode = lastCodeByWorkflowId.get(workflowId);
+		if (baseCode) return baseCode;
+
+		const json = await context.workflowService.getAsWorkflowJSON(workflowId);
+		baseCode = generateWorkflowCode(json);
+		lastCodeByWorkflowId.set(workflowId, baseCode);
+		return baseCode;
+	}
 
 	async function saveWorkflowCode(input: WorkflowCodeActionInput, ctx: WorkflowCodeToolContext) {
 		const blocked = blockSaveIfNeeded(context, input);
@@ -401,21 +516,15 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 
 		if (patches) {
 			// Patch mode: apply str_replace to existing code.
-			// Source priority: lastCode (same session) → fetch from backend (cross-session)
-			let baseCode = lastCode;
-			if (!baseCode && workflowId) {
-				try {
-					const json = await context.workflowService.getAsWorkflowJSON(workflowId);
-					baseCode = generateWorkflowCode(json);
-					lastCode = baseCode; // Sync so future patches match this code
-				} catch {
-					return {
-						success: false,
-						errors: [
-							'Patch mode: no previous code and could not fetch workflow. Send full code instead.',
-						],
-					};
-				}
+			// Source priority: cached code for this workflow → fetch from backend.
+			let baseCode: string | null;
+			try {
+				baseCode = await getPatchBaseCode(workflowId);
+			} catch {
+				return {
+					success: false,
+					errors: ['Patch mode: could not fetch workflow. Send full code instead.'],
+				};
 			}
 			if (!baseCode) {
 				return {
@@ -448,7 +557,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 				nodeTypesProvider: context.nodeTypesProvider,
 			});
 		} catch (error) {
-			lastCode = finalCode;
+			rememberCode(workflowId, finalCode);
 			return {
 				success: false,
 				errors: [error instanceof Error ? error.message : 'Failed to parse workflow code'],
@@ -459,7 +568,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 		const { errors, informational } = partitionWarnings(result.warnings);
 
 		if (errors.length > 0) {
-			lastCode = finalCode;
+			rememberCode(workflowId, finalCode);
 			return {
 				success: false,
 				errors: errors.map(
@@ -507,7 +616,6 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 		const hasPlaceholders =
 			(json.nodes ?? []).some((n) => hasPlaceholderDeep(n.parameters)) || undefined;
 		const referencedWorkflowIds = getReferencedWorkflowIds(json);
-		const hasMocked = mockResult.mockedNodeNames.length > 0;
 
 		try {
 			const confirmationInput: WorkflowCodeActionInput = {
@@ -520,7 +628,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 			// Remember only after approval. Patch-mode handlers are re-entered on HITL
 			// resume with the original input, so caching a valid pre-approval patch
 			// would make the resumed call apply the same patch twice.
-			lastCode = finalCode;
+			rememberCode(workflowId, finalCode);
 
 			if (workflowId) {
 				const updated = await context.workflowService.updateFromWorkflowJSON(
@@ -528,23 +636,18 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					json,
 					projectId ? { projectId } : undefined,
 				);
+				const saveMetadata = buildWorkflowSaveMetadata({
+					workflowId: updated.id,
+					triggerNodes,
+					mockResult,
+					referencedWorkflowIds,
+					hasUnresolvedPlaceholders: hasPlaceholders,
+				});
 				const plannedReportError = await reportPlannedBuildSuccessSafely({
 					context,
 					workflowId: updated.id,
 					workflowName: json.name,
-					triggerNodes,
-					mockedNodeNames: hasMocked ? mockResult.mockedNodeNames : undefined,
-					mockedCredentialTypes: hasMocked ? mockResult.mockedCredentialTypes : undefined,
-					mockedCredentialsByNode: hasMocked ? mockResult.mockedCredentialsByNode : undefined,
-					verificationPinData:
-						hasMocked && Object.keys(mockResult.verificationPinData).length > 0
-							? mockResult.verificationPinData
-							: undefined,
-					usesWorkflowPinDataForVerification:
-						mockResult.usesWorkflowPinDataForVerification || undefined,
-					supportingWorkflowIds:
-						referencedWorkflowIds.length > 0 ? referencedWorkflowIds : undefined,
-					hasUnresolvedPlaceholders: hasPlaceholders,
+					...saveMetadata,
 				});
 				if (plannedReportError) {
 					return {
@@ -560,6 +663,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					success: true,
 					workflowId: updated.id,
 					workflowName: json.name,
+					...saveMetadata,
 					warnings:
 						informational.length > 0
 							? informational.map((w) => `[${w.code}]: ${w.message}`)
@@ -570,24 +674,20 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					...(projectId ? { projectId } : {}),
 					markAsAiTemporary: true,
 				});
-				(context.aiCreatedWorkflowIds ??= new Set<string>()).add(created.id);
+				const createdWorkflowIds = (context.aiCreatedWorkflowIds ??= new Set<string>());
+				createdWorkflowIds.add(created.id);
+				const saveMetadata = buildWorkflowSaveMetadata({
+					workflowId: created.id,
+					triggerNodes,
+					mockResult,
+					referencedWorkflowIds,
+					hasUnresolvedPlaceholders: hasPlaceholders,
+				});
 				const plannedReportError = await reportPlannedBuildSuccessSafely({
 					context,
 					workflowId: created.id,
 					workflowName: json.name,
-					triggerNodes,
-					mockedNodeNames: hasMocked ? mockResult.mockedNodeNames : undefined,
-					mockedCredentialTypes: hasMocked ? mockResult.mockedCredentialTypes : undefined,
-					mockedCredentialsByNode: hasMocked ? mockResult.mockedCredentialsByNode : undefined,
-					verificationPinData:
-						hasMocked && Object.keys(mockResult.verificationPinData).length > 0
-							? mockResult.verificationPinData
-							: undefined,
-					usesWorkflowPinDataForVerification:
-						mockResult.usesWorkflowPinDataForVerification || undefined,
-					supportingWorkflowIds:
-						referencedWorkflowIds.length > 0 ? referencedWorkflowIds : undefined,
-					hasUnresolvedPlaceholders: hasPlaceholders,
+					...saveMetadata,
 				});
 				if (plannedReportError) {
 					return {
@@ -599,10 +699,23 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 						],
 					};
 				}
+				const promotionError = await promoteCreatedWorkflowSafely(context, created.id);
+				if (promotionError) {
+					return {
+						success: false,
+						workflowId: created.id,
+						workflowName: json.name,
+						errors: [
+							`Workflow was saved, but failed to finalize temporary state: ${promotionError}`,
+						],
+					};
+				}
+				rememberCode(created.id, finalCode);
 				return {
 					success: true,
 					workflowId: created.id,
 					workflowName: json.name,
+					...saveMetadata,
 					warnings:
 						informational.length > 0
 							? informational.map((w) => `[${w.code}]: ${w.message}`)

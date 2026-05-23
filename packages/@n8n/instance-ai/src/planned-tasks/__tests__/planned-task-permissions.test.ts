@@ -27,11 +27,11 @@ describe('applyPlannedTaskPermissions', () => {
 				createWorkflow: 'always_allow',
 				updateWorkflow: 'always_allow',
 				runWorkflow: 'always_allow',
-				publishWorkflow: 'always_allow',
 				createDataTable: 'always_allow',
 				mutateDataTableSchema: 'always_allow',
 				mutateDataTableRows: 'always_allow',
 			});
+			expect(result.permissions?.publishWorkflow).toBe('require_approval');
 		});
 
 		it('should not affect destructive or open-ended permissions', () => {

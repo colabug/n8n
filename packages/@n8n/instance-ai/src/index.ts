@@ -283,6 +283,7 @@ export type {
 	PendingConfirmation,
 	RunStateTimeoutDetails,
 	StartedRunState,
+	SuspendedPlannedBuildFollowUp,
 	SuspendedRunState,
 } from './runtime/run-state-registry';
 export { InstanceAiTerminalResponseGuard } from './runtime/terminal-response-guard';

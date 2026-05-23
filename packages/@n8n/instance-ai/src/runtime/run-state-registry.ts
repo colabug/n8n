@@ -18,6 +18,14 @@ export interface ActiveRunState {
 	lastActivityAt?: number;
 }
 
+export interface SuspendedPlannedBuildFollowUp {
+	taskId: string;
+	workItemId: string;
+	title: string;
+	spec: string;
+	workflowId?: string;
+}
+
 export interface SuspendedRunState<TUser = unknown> extends ActiveRunState {
 	agentRunId: string;
 	agent: unknown;
@@ -30,6 +38,8 @@ export interface SuspendedRunState<TUser = unknown> extends ActiveRunState {
 	 *  Preserved across suspend/resume so the resumed run's finalizer can
 	 *  run the deadlock fallback and reschedule. */
 	checkpoint?: { isCheckpointFollowUp: true; checkpointTaskId: string };
+	/** Set when the suspended run was a planned workflow-build follow-up. */
+	plannedBuild?: SuspendedPlannedBuildFollowUp;
 }
 
 /**

@@ -34,9 +34,9 @@ export interface SubAgentBriefingInput {
 /**
  * Build a structured XML-formatted briefing for a sub-agent.
  *
- * All sub-agent spawn sites (delegate, builder, research) use this
- * instead of ad-hoc string concatenation. The XML structure gives the LLM
- * clear section boundaries and makes the briefing parseable.
+ * Sub-agent spawn sites use this instead of ad-hoc string concatenation.
+ * The XML structure gives the LLM clear section boundaries and makes the
+ * briefing parseable.
  */
 export async function buildSubAgentBriefing(input: SubAgentBriefingInput): Promise<string> {
 	const parts: string[] = [];

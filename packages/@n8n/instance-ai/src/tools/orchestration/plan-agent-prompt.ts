@@ -66,6 +66,7 @@ ${NATIVE_NODE_PREFERENCE}
    - \`integrations\`: service names only (e.g. "Slack", "Google Calendar"), no resource identifiers or qualifiers
    - \`dependsOn\`: **CRITICAL** — set dependencies correctly. Workflows that produce data before workflows that consume it. Independent workflows should NOT depend on each other.
    - \`assumptions\`: design decisions only, no resource identifiers (channels, calendars, etc.)
+   - For complex systems (roughly 5+ nodes, multiple integrations, or reusable heavy processing), consider decomposing into multiple workflow items: one or more callable helper workflows with clear input/output contracts, then a main workflow that depends on and calls those helpers. Do this only when it improves testability or reuse; keep simple workflows as one item.
    - Use \`research\` kind for tasks requiring web research before other tasks can proceed (e.g. "find the API endpoint format for service X"). Research tasks run a dedicated web research agent.
    - After all items are added, call \`submit-plan\` to request user approval.
 

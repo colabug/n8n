@@ -627,6 +627,7 @@ type TerminalGuardOrderServiceInternals = {
 		cancelThread: jest.Mock;
 		clearActiveRun: jest.Mock;
 		hasSuspendedRun: jest.Mock;
+		suspendRun: jest.Mock;
 	};
 	eventBus: {
 		events: InstanceAiEvent[];
@@ -645,6 +646,7 @@ type TerminalGuardOrderServiceInternals = {
 	countCreditsIfFirst: jest.Mock;
 	maybeFinalizeRunTraceRoot: jest.Mock;
 	schedulePlannedTasks: jest.Mock;
+	finalizePlannedBuildFollowUp: jest.Mock;
 	drainPendingCheckpointReentries: jest.Mock;
 	processResumedStream: (
 		agent: unknown,
@@ -659,6 +661,13 @@ type TerminalGuardOrderServiceInternals = {
 			abortController: AbortController;
 			snapshotStorage: unknown;
 			tracing?: InstanceAiTraceContext;
+			plannedBuild?: {
+				taskId: string;
+				workItemId: string;
+				title: string;
+				spec: string;
+				workflowId?: string;
+			};
 		},
 	) => Promise<void>;
 };
@@ -697,6 +706,7 @@ function createTerminalGuardOrderService(): TerminalGuardOrderServiceInternals {
 		cancelThread: jest.fn(),
 		clearActiveRun: jest.fn(),
 		hasSuspendedRun: jest.fn(() => true),
+		suspendRun: jest.fn(),
 	};
 	service.eventBus = {
 		events,
@@ -719,6 +729,7 @@ function createTerminalGuardOrderService(): TerminalGuardOrderServiceInternals {
 	service.countCreditsIfFirst = jest.fn(async () => {});
 	service.maybeFinalizeRunTraceRoot = jest.fn(async () => {});
 	service.schedulePlannedTasks = jest.fn(async () => {});
+	service.finalizePlannedBuildFollowUp = jest.fn(async () => {});
 	service.drainPendingCheckpointReentries = jest.fn(async () => {});
 	return service;
 }
@@ -1537,6 +1548,12 @@ function createSuspendedRunResumeService(): SuspendedRunResumeServiceInternals {
 			modelId: undefined,
 			messageGroupId: 'group-1',
 			checkpoint: undefined,
+			plannedBuild: {
+				taskId: 'build-1',
+				workItemId: 'wi-1',
+				title: 'Build workflow',
+				spec: 'Build it',
+			},
 		})),
 		activateSuspendedRun: jest.fn(),
 	};
@@ -1733,7 +1750,10 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 		expect(service.processResumedStream).toHaveBeenCalledWith(
 			expect.any(Object),
 			expect.objectContaining({ approved: true }),
-			expect.objectContaining({ user: freshUser }),
+			expect.objectContaining({
+				user: freshUser,
+				plannedBuild: expect.objectContaining({ taskId: 'build-1' }),
+			}),
 		);
 	});
 });
@@ -2052,6 +2072,46 @@ describe('InstanceAiService — terminal response guard wiring', () => {
 		expect(service.telemetry.track).toHaveBeenCalledWith('Builder satisfied user intent', {
 			thread_id: 'thread-a',
 		});
+	});
+
+	it('finalizes planned build follow-ups after a resumed planned-build run exits', async () => {
+		const service = createTerminalGuardOrderService();
+		const abortController = new AbortController();
+		service.runState.hasSuspendedRun.mockReturnValue(false);
+		jest.mocked(resumeAgentRun).mockResolvedValueOnce({
+			status: 'completed',
+			agentRunId: 'agent-run-1',
+			text: Promise.resolve('done'),
+			workSummary: { toolCalls: [], totalToolCalls: 0, totalToolErrors: 0 },
+		});
+
+		await service.processResumedStream(
+			{},
+			{},
+			{
+				runId: 'run-1',
+				agentRunId: 'agent-run-1',
+				threadId: 'thread-a',
+				user: fakeUser,
+				toolCallId: 'tool-call-1',
+				signal: abortController.signal,
+				abortController,
+				snapshotStorage: {},
+				plannedBuild: {
+					taskId: 'build-1',
+					workItemId: 'wi-1',
+					title: 'Build workflow',
+					spec: 'Build it',
+				},
+			},
+		);
+
+		expect(service.finalizePlannedBuildFollowUp).toHaveBeenCalledWith(
+			fakeUser,
+			'thread-a',
+			'build-1',
+		);
+		expect(service.schedulePlannedTasks).not.toHaveBeenCalled();
 	});
 
 	it('rebinds resumed agents to resume trace telemetry', async () => {

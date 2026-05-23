@@ -1,3 +1,4 @@
+import { fireEvent } from '@testing-library/vue';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createThreadComponentRenderer } from './createThreadComponentRenderer';
 import { createTestingPinia } from '@pinia/testing';
@@ -8,9 +9,21 @@ import type { ResourceEntry } from '../useResourceRegistry';
 // Stub ChatMarkdownChunk to expose the processed content as plain text
 vi.mock('@/features/ai/chatHub/components/ChatMarkdownChunk.vue', () => ({
 	default: {
-		template:
-			'<div data-test-id="markdown-output" :data-source-type="source.type">{{ source.type === "text" ? source.content : source.command?.title }}</div>',
 		props: ['source'],
+		computed: {
+			markdownLink(): { text: string; href: string } | undefined {
+				const source = (this as { source: { type: string; content?: string } }).source;
+				if (source.type !== 'text' || !source.content) return undefined;
+				const match = /\[([^\]]+)\]\(([^)]+)\)/.exec(source.content);
+				return match ? { text: match[1], href: match[2] } : undefined;
+			},
+		},
+		template: `
+			<div>
+				<div data-test-id="markdown-output" :data-source-type="source.type">{{ source.type === "text" ? source.content : source.command?.title }}</div>
+				<a v-if="markdownLink" :href="markdownLink.href">{{ markdownLink.text }}</a>
+			</div>
+		`,
 	},
 }));
 
@@ -190,5 +203,30 @@ describe('InstanceAiMarkdown', () => {
 		);
 		expect(result).toContain('[the My Workflow docs](https://example.com)');
 		expect(result).not.toContain('n8n-resource://');
+	});
+
+	it('keeps resource preview click handlers after component updates', async () => {
+		thread.resourceNameIndex = makeRegistry([
+			{ type: 'workflow', id: 'wf-1', name: 'My Workflow' },
+		]);
+		const openWorkflowPreview = vi.fn(() => true);
+		const { container, rerender } = renderComponent({
+			props: { content: 'Open My Workflow' },
+			global: {
+				provide: { openWorkflowPreview },
+			},
+		});
+
+		const firstLink = container.querySelector('a');
+		expect(firstLink).not.toBeNull();
+		await fireEvent.click(firstLink as HTMLAnchorElement);
+
+		await rerender({ content: 'Open My Workflow' });
+		const updatedLink = container.querySelector('a');
+		expect(updatedLink).not.toBeNull();
+		await fireEvent.click(updatedLink as HTMLAnchorElement);
+
+		expect(openWorkflowPreview).toHaveBeenCalledTimes(2);
+		expect(openWorkflowPreview).toHaveBeenCalledWith('wf-1');
 	});
 });

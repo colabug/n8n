@@ -266,6 +266,34 @@ function buildResourceUrl(type: string, id: string, projectId: string | undefine
 /** Track click handlers attached to links so they can be cleaned up. */
 const linkHandlers = new WeakMap<HTMLAnchorElement, (e: MouseEvent) => void>();
 
+function attachResourcePreviewHandler(
+	link: HTMLAnchorElement,
+	type: string,
+	id: string,
+	projectId: string | undefined,
+): void {
+	if (linkHandlers.has(link)) return;
+
+	const handler = (e: MouseEvent) => {
+		if (e.metaKey || e.ctrlKey) return; // Let browser handle new-tab
+
+		let switched: boolean | undefined;
+		if (type === 'workflow') {
+			switched = openWorkflowPreview?.(id);
+		} else if (type === 'data-table' && projectId) {
+			switched = openDataTablePreview?.(id, projectId);
+		}
+
+		// Suppress default navigation only when the preview actually switched.
+		// If preview was already showing this resource (switched === false) or
+		// no preview is available (switched === undefined), let target="_blank"
+		// open a new tab.
+		if (switched === true) e.preventDefault();
+	};
+	link.addEventListener('click', handler);
+	linkHandlers.set(link, handler);
+}
+
 /**
  * Post-process the rendered DOM to transform resource links into
  * styled resource chips with icons. Handles both:
@@ -286,8 +314,19 @@ function enhanceResourceLinks(): void {
 	const allLinks = wrapperRef.value.querySelectorAll<HTMLAnchorElement>('a');
 
 	for (const link of allLinks) {
-		// Already enhanced — skip
-		if (link.dataset.resourceChip) continue;
+		// Already enhanced. Vue updates can reuse the same DOM node after our
+		// update cleanup removed handlers, so make sure preview clicks stay wired.
+		if (link.dataset.resourceChip) {
+			if (link.dataset.resourceId) {
+				attachResourcePreviewHandler(
+					link,
+					link.dataset.resourceChip,
+					link.dataset.resourceId,
+					link.dataset.resourceProjectId,
+				);
+			}
+			continue;
+		}
 
 		const href = link.getAttribute('href') ?? '';
 
@@ -309,26 +348,11 @@ function enhanceResourceLinks(): void {
 			link.target = '_blank';
 			link.rel = 'noopener noreferrer';
 			link.dataset.resourceId = id;
+			if (registryEntry?.projectId) {
+				link.dataset.resourceProjectId = registryEntry.projectId;
+			}
 			applyResourceChip(link, type);
-
-			const handler = (e: MouseEvent) => {
-				if (e.metaKey || e.ctrlKey) return; // Let browser handle new-tab
-
-				let switched: boolean | undefined;
-				if (type === 'workflow') {
-					switched = openWorkflowPreview?.(id);
-				} else if (type === 'data-table' && registryEntry?.projectId) {
-					switched = openDataTablePreview?.(id, registryEntry.projectId);
-				}
-
-				// Suppress default navigation only when the preview actually switched.
-				// If preview was already showing this resource (switched === false) or
-				// no preview is available (switched === undefined), let target="_blank"
-				// open a new tab.
-				if (switched === true) e.preventDefault();
-			};
-			link.addEventListener('click', handler);
-			linkHandlers.set(link, handler);
+			attachResourcePreviewHandler(link, type, id, registryEntry?.projectId);
 
 			continue;
 		}
