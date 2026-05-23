@@ -3061,13 +3061,11 @@ export class InstanceAiService {
 			);
 
 			if (!startedRunId) {
-				this.logger.warn('Workflow build follow-up run did not start — marking task failed', {
+				this.logger.warn('Workflow build follow-up run did not start — reverting task to planned', {
 					threadId,
 					plannedTaskId: buildTask.id,
 				});
-				await plannedTaskService.markFailed(threadId, buildTask.id, {
-					error: 'Workflow build follow-up run did not start',
-				});
+				await plannedTaskService.revertWorkflowBuildToPlanned(threadId, buildTask.id);
 			}
 			return;
 		}
@@ -3222,10 +3220,12 @@ export class InstanceAiService {
 				// Scope the runWorkflow override to the workflows this checkpoint is verifying:
 				// the orchestrator can call `executions(action="run")` on a depended-on workflow
 				// without HITL, but any other workflow id still requires user approval.
-				context.allowedRunWorkflowIds = await this.getCheckpointAllowedWorkflowIds(
+				const checkpointAllowedWorkflowIds = await this.getCheckpointAllowedWorkflowIds(
 					threadId,
 					checkpoint.checkpointTaskId,
 				);
+				context.allowedRunWorkflowIds = checkpointAllowedWorkflowIds;
+				context.allowedUpdateWorkflowIds = checkpointAllowedWorkflowIds;
 			}
 
 			if (plannedBuild) {

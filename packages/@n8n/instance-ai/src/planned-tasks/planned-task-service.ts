@@ -116,6 +116,38 @@ function updateTaskRecord(
 	return { ...graph, tasks };
 }
 
+function revertRunningTaskToPlanned(
+	graph: PlannedTaskGraph,
+	taskId: string,
+	kind: PlannedTaskRecord['kind'],
+): { result: CheckpointSettleResult; graph: PlannedTaskGraph } {
+	const task = graph.tasks.find((t) => t.id === taskId);
+	if (!task) return { result: { ok: false, reason: 'not-found' }, graph };
+	if (task.kind !== kind) {
+		return { result: { ok: false, reason: 'wrong-kind', actual: { kind: task.kind } }, graph };
+	}
+	if (task.status !== 'running') {
+		return {
+			result: { ok: false, reason: 'wrong-status', actual: { status: task.status } },
+			graph,
+		};
+	}
+
+	const tasks = graph.tasks.map<PlannedTaskRecord>((t) => {
+		if (t.id !== taskId) return t;
+		const {
+			agentId: _agentId,
+			backgroundTaskId: _backgroundTaskId,
+			startedAt: _startedAt,
+			...rest
+		} = t;
+		return { ...rest, status: 'planned' };
+	});
+
+	const next: PlannedTaskGraph = { ...graph, tasks };
+	return { result: { ok: true, graph: next }, graph: next };
+}
+
 export class PlannedTaskCoordinator implements PlannedTaskService {
 	constructor(private readonly storage: PlannedTaskStorage) {}
 
@@ -296,29 +328,29 @@ export class PlannedTaskCoordinator implements PlannedTaskService {
 		let result: CheckpointSettleResult = { ok: false, reason: 'not-found' };
 
 		await this.storage.update(threadId, (graph) => {
-			const task = graph.tasks.find((t) => t.id === taskId);
-			if (!task) {
-				result = { ok: false, reason: 'not-found' };
-				return graph;
-			}
-			if (task.kind !== 'checkpoint') {
-				result = { ok: false, reason: 'wrong-kind', actual: { kind: task.kind } };
-				return graph;
-			}
-			if (task.status !== 'running') {
-				result = { ok: false, reason: 'wrong-status', actual: { status: task.status } };
-				return graph;
-			}
+			const reverted = revertRunningTaskToPlanned(graph, taskId, 'checkpoint');
+			result = reverted.result;
+			return reverted.graph;
+		});
 
-			const tasks = graph.tasks.map<PlannedTaskRecord>((t) => {
-				if (t.id !== taskId) return t;
-				const { agentId: _agentId, startedAt: _startedAt, ...rest } = t;
-				return { ...rest, status: 'planned' };
-			});
+		return result;
+	}
 
-			const next: PlannedTaskGraph = { ...graph, tasks };
-			result = { ok: true, graph: next };
-			return next;
+	/**
+	 * Rewind a running workflow-build task back to `planned` after a follow-up
+	 * scheduling race. This mirrors checkpoint retry behavior: the build did not
+	 * fail, it simply never started its follow-up turn.
+	 */
+	async revertWorkflowBuildToPlanned(
+		threadId: string,
+		taskId: string,
+	): Promise<CheckpointSettleResult> {
+		let result: CheckpointSettleResult = { ok: false, reason: 'not-found' };
+
+		await this.storage.update(threadId, (graph) => {
+			const reverted = revertRunningTaskToPlanned(graph, taskId, 'build-workflow');
+			result = reverted.result;
+			return reverted.graph;
 		});
 
 		return result;

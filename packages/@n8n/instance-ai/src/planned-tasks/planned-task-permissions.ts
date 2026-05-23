@@ -6,7 +6,7 @@ import type { InstanceAiContext, PlannedTaskKind } from '../types';
  * Permission overrides applied when a planned task has been approved by the user.
  *
  * Plan approval acts as authorization for the task-family's non-destructive tools,
- * so the sub-agent can execute without a second confirmation prompt.
+ * so the planned-task executor can run without a second confirmation prompt.
  *
  * Destructive actions, open-ended actions (fetch-url, read-file),
  * and credential deletion are intentionally excluded — they always require explicit approval.
@@ -28,6 +28,7 @@ export const PLANNED_TASK_PERMISSION_OVERRIDES: Partial<
 	// verify-built-workflow / executions(action="run") without a second prompt.
 	checkpoint: {
 		runWorkflow: 'always_allow',
+		updateWorkflow: 'always_allow',
 	},
 };
 

@@ -74,7 +74,10 @@ describe('workflow code create/update approval flow', () => {
 	const validWorkflow = { name: 'Lead intake', nodes: [], connections: {} };
 	const mockedParseAndValidate = jest.mocked(parseAndValidate);
 
-	function makeContext(permissions: Partial<Permissions>): InstanceAiContext {
+	function makeContext(
+		permissions: Partial<Permissions>,
+		overrides: Partial<InstanceAiContext> = {},
+	): InstanceAiContext {
 		return {
 			userId: 'user-1',
 			permissions: permissions as Permissions,
@@ -87,6 +90,7 @@ describe('workflow code create/update approval flow', () => {
 			credentialService: { list: jest.fn().mockResolvedValue([]) },
 			nodeService: {},
 			dataTableService: {},
+			...overrides,
 		} as unknown as InstanceAiContext;
 	}
 
@@ -208,6 +212,83 @@ describe('workflow code create/update approval flow', () => {
 			success: true,
 			workflowId: 'created-wf',
 			workflowName: 'Lead intake',
+		});
+	});
+
+	it('honors scoped update approval for pre-approved checkpoint workflow repairs', async () => {
+		const ctx = makeContext(
+			{ updateWorkflow: 'always_allow' },
+			{ allowedUpdateWorkflowIds: new Set(['wf-1']) },
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context, suspend } = makeToolContext();
+
+		const result = await service.update(
+			{ action: 'update', code: validCode, workflowId: 'wf-1', name: 'Lead intake' },
+			context,
+		);
+
+		expect(suspend).not.toHaveBeenCalled();
+		expect(ctx.workflowService.updateFromWorkflowJSON).toHaveBeenCalled();
+		expect(result).toMatchObject({ success: true, workflowId: 'wf-1' });
+	});
+
+	it('requires approval when an always-allow update is outside the scoped workflow set', async () => {
+		const ctx = makeContext(
+			{ updateWorkflow: 'always_allow' },
+			{ allowedUpdateWorkflowIds: new Set(['wf-allowed']) },
+		);
+		const service = createWorkflowCodeService(ctx);
+		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
+
+		const result = await service.update(
+			{ action: 'update', code: validCode, workflowId: 'wf-other', name: 'Lead intake' },
+			{ resumeData: undefined, suspend } as WorkflowCodeToolContext,
+		);
+
+		expect(suspend).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Update workflow Lead intake (ID: wf-other)',
+				severity: 'info',
+			}),
+		);
+		expect(ctx.workflowService.updateFromWorkflowJSON).not.toHaveBeenCalled();
+		expect(result).toEqual({ success: false, errors: ['Workflow save failed: suspended'] });
+	});
+
+	it('returns a failed result when planned build reporting fails after save', async () => {
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi-1',
+					title: 'Build workflow',
+					spec: 'Build it',
+					plannedTaskService: {
+						markSucceeded: jest.fn().mockRejectedValue(new Error('storage unavailable')),
+					},
+					workflowTaskService: {
+						reportBuildOutcome: jest.fn().mockResolvedValue({ type: 'done' }),
+					},
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalled();
+		expect(result).toMatchObject({
+			success: false,
+			workflowId: 'created-wf',
+			workflowName: 'Lead intake',
+			errors: ['Workflow was saved, but failed to update planned task state: storage unavailable'],
 		});
 	});
 

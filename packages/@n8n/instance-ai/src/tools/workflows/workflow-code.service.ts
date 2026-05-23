@@ -156,13 +156,23 @@ function blockSaveIfNeeded(
 	return undefined;
 }
 
+function isSaveAlwaysAllowed(context: InstanceAiContext, input: WorkflowCodeActionInput): boolean {
+	if (input.action === 'create') {
+		return context.permissions?.createWorkflow === 'always_allow';
+	}
+
+	if (context.permissions?.updateWorkflow !== 'always_allow') return false;
+	const workflowId = getWorkflowId(input);
+	const allowList = context.allowedUpdateWorkflowIds;
+	return allowList === undefined || (workflowId !== undefined && allowList.has(workflowId));
+}
+
 async function confirmSave(
 	context: InstanceAiContext,
 	input: WorkflowCodeActionInput,
 	ctx: WorkflowCodeToolContext,
 ): Promise<WorkflowCodeDeniedResult | undefined> {
-	const permKey = input.action === 'update' ? 'updateWorkflow' : 'createWorkflow';
-	const needsApproval = context.permissions?.[permKey] !== 'always_allow';
+	const needsApproval = !isSaveAlwaysAllowed(context, input);
 	const resumeData = ctx.resumeData;
 
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
@@ -364,13 +374,15 @@ async function reportPlannedBuildSuccess({
 
 async function reportPlannedBuildSuccessSafely(
 	input: Parameters<typeof reportPlannedBuildSuccess>[0],
-): Promise<void> {
+): Promise<string | undefined> {
 	try {
 		await reportPlannedBuildSuccess(input);
+		return undefined;
 	} catch (error) {
 		input.context.logger?.warn?.('Failed to report planned build success', {
 			error: error instanceof Error ? error.message : String(error),
 		});
+		return error instanceof Error ? error.message : String(error);
 	}
 }
 
@@ -516,7 +528,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					json,
 					projectId ? { projectId } : undefined,
 				);
-				await reportPlannedBuildSuccessSafely({
+				const plannedReportError = await reportPlannedBuildSuccessSafely({
 					context,
 					workflowId: updated.id,
 					workflowName: json.name,
@@ -534,6 +546,16 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 						referencedWorkflowIds.length > 0 ? referencedWorkflowIds : undefined,
 					hasUnresolvedPlaceholders: hasPlaceholders,
 				});
+				if (plannedReportError) {
+					return {
+						success: false,
+						workflowId: updated.id,
+						workflowName: json.name,
+						errors: [
+							`Workflow was saved, but failed to update planned task state: ${plannedReportError}`,
+						],
+					};
+				}
 				return {
 					success: true,
 					workflowId: updated.id,
@@ -549,7 +571,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					markAsAiTemporary: true,
 				});
 				(context.aiCreatedWorkflowIds ??= new Set<string>()).add(created.id);
-				await reportPlannedBuildSuccessSafely({
+				const plannedReportError = await reportPlannedBuildSuccessSafely({
 					context,
 					workflowId: created.id,
 					workflowName: json.name,
@@ -567,6 +589,16 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 						referencedWorkflowIds.length > 0 ? referencedWorkflowIds : undefined,
 					hasUnresolvedPlaceholders: hasPlaceholders,
 				});
+				if (plannedReportError) {
+					return {
+						success: false,
+						workflowId: created.id,
+						workflowName: json.name,
+						errors: [
+							`Workflow was saved, but failed to update planned task state: ${plannedReportError}`,
+						],
+					};
+				}
 				return {
 					success: true,
 					workflowId: created.id,

@@ -1,6 +1,7 @@
 import { computed, ref, watch, type Ref } from 'vue';
 import type { IconName } from '@n8n/design-system';
 import {
+	getLatestActiveBuildTarget,
 	getLatestBuildResult,
 	getLatestExecutionId,
 	getLatestWorkflowSetupResult,
@@ -38,6 +39,17 @@ export function useCanvasPreview({
 	// --- Tab state ---
 	const activeTabId = ref<string>();
 
+	const latestActiveBuildTarget = computed(() => {
+		for (let i = thread.messages.length - 1; i >= 0; i--) {
+			const msg = thread.messages[i];
+			if (msg.agentTree) {
+				const result = getLatestActiveBuildTarget(msg.agentTree);
+				if (result) return result;
+			}
+		}
+		return null;
+	});
+
 	// All artifacts (workflows + data tables) in the current thread, derived from resource registry
 	const allArtifactTabs = computed((): ArtifactTab[] => {
 		const result: ArtifactTab[] = [];
@@ -52,6 +64,16 @@ export function useCanvasPreview({
 					executionStatus: workflowExecutions?.value.get(entry.id)?.status,
 				});
 			}
+		}
+
+		const buildTarget = latestActiveBuildTarget.value;
+		if (buildTarget && !thread.producedArtifacts.has(buildTarget.workflowId)) {
+			result.push({
+				id: buildTarget.workflowId,
+				type: 'workflow',
+				name: buildTarget.name ?? `Workflow ${buildTarget.workflowId}`,
+				icon: 'workflow',
+			});
 		}
 
 		return result;
@@ -169,6 +191,17 @@ export function useCanvasPreview({
 
 			activeTabId.value = latestBuildResult.value.workflowId;
 			workflowRefreshKey.value++;
+		},
+		{ flush: 'sync' },
+	);
+
+	watch(
+		() => latestActiveBuildTarget.value?.toolCallId,
+		(toolCallId) => {
+			if (!toolCallId || !latestActiveBuildTarget.value) return;
+			if (thread.isHydratingThread) return;
+
+			activeTabId.value = latestActiveBuildTarget.value.workflowId;
 		},
 		{ flush: 'sync' },
 	);

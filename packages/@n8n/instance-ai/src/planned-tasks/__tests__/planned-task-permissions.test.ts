@@ -52,6 +52,18 @@ describe('applyPlannedTaskPermissions', () => {
 		});
 	});
 
+	describe('checkpoint', () => {
+		it('should auto-approve verification runs and scoped workflow repairs', () => {
+			const context = makeContext();
+			const result = applyPlannedTaskPermissions(context, 'checkpoint');
+
+			expect(result.permissions).toMatchObject({
+				runWorkflow: 'always_allow',
+				updateWorkflow: 'always_allow',
+			});
+		});
+	});
+
 	describe.each<PlannedTaskKind>(['research', 'delegate'])('%s', (kind) => {
 		it('should return the original context unchanged', () => {
 			const context = makeContext();

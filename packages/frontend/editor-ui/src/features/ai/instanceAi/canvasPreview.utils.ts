@@ -13,6 +13,13 @@ export interface BuildResult {
 	toolCallId: string;
 }
 
+export interface WorkflowBuildTarget {
+	workflowId: string;
+	/** Unique per build target — changes even when a new edit targets the same workflow. */
+	toolCallId: string;
+	name?: string;
+}
+
 export interface WorkflowSetupResult {
 	workflowId: string;
 	/** Unique per operation — changes even when the same workflow is set up again. */
@@ -54,6 +61,37 @@ export function getLatestBuildResult(node: InstanceAiAgentNode): BuildResult | u
 function isWorkflowBuildToolCall(tc: InstanceAiAgentNode['toolCalls'][number]): boolean {
 	const action = (tc.args as Record<string, unknown> | undefined)?.action;
 	return tc.toolName === 'workflows' && (action === 'create' || action === 'update');
+}
+
+/**
+ * Walks an agent tree depth-first (most recent last) and returns the workflowId
+ * from the latest in-flight workflow update call. This lets edit-mode previews
+ * open as soon as the direct workflow tool starts, before save/HITL completes.
+ */
+export function getLatestActiveBuildTarget(
+	node: InstanceAiAgentNode,
+): WorkflowBuildTarget | undefined {
+	for (let i = node.children.length - 1; i >= 0; i--) {
+		const childResult = getLatestActiveBuildTarget(node.children[i]);
+		if (childResult) return childResult;
+	}
+	for (let i = node.toolCalls.length - 1; i >= 0; i--) {
+		const tc = node.toolCalls[i];
+		const args = tc.args as Record<string, unknown> | undefined;
+		if (
+			tc.toolName === 'workflows' &&
+			args?.action === 'update' &&
+			tc.isLoading &&
+			typeof args.workflowId === 'string'
+		) {
+			return {
+				workflowId: args.workflowId,
+				toolCallId: tc.toolCallId,
+				...(typeof args.name === 'string' ? { name: args.name } : {}),
+			};
+		}
+	}
+	return undefined;
 }
 
 const WORKFLOW_SETUP_TOOLS = new Set(['setup-workflow', 'apply-workflow-credentials']);

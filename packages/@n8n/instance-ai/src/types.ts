@@ -626,6 +626,10 @@ export interface InstanceAiContext {
 	 *  Used by checkpoint follow-up runs to scope the override to the workflows the checkpoint is
 	 *  verifying — `executions(action="run")` on any other workflow still requires user approval. */
 	allowedRunWorkflowIds?: ReadonlySet<string>;
+	/** When set, `updateWorkflow: 'always_allow'` only short-circuits HITL approval for these workflow IDs.
+	 *  Used by checkpoint follow-up runs so verification repairs can update approved workflow outputs
+	 *  without granting broad update access to unrelated workflows. */
+	allowedUpdateWorkflowIds?: ReadonlySet<string>;
 	/** When true, the instance is in read-only mode (source control branchReadOnly). */
 	branchReadOnly?: boolean;
 	/** When `false`, callers must avoid surfacing node parameter values (or anything derived from them
@@ -756,6 +760,7 @@ export interface PlannedTaskService {
 		taskId: string,
 		update: { error?: string; finishedAt?: number },
 	): Promise<PlannedTaskGraph | null>;
+	revertWorkflowBuildToPlanned(threadId: string, taskId: string): Promise<CheckpointSettleResult>;
 	markCancelled(
 		threadId: string,
 		taskId: string,

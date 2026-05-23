@@ -1464,9 +1464,11 @@ function createPlannedTaskSchedulerService(): {
 		tick: jest.Mock;
 		revertToActive: jest.Mock;
 		revertCheckpointToPlanned: jest.Mock;
+		revertWorkflowBuildToPlanned: jest.Mock;
 		markRunning: jest.Mock;
+		markFailed: jest.Mock;
 	};
-	graph: { planRunId: string; messageGroupId: string; tasks: Array<{ id: string }> };
+	graph: { planRunId: string; messageGroupId: string; tasks: Array<Record<string, unknown>> };
 } {
 	const service = Object.create(
 		InstanceAiService.prototype,
@@ -1477,7 +1479,9 @@ function createPlannedTaskSchedulerService(): {
 		tick: jest.fn(async () => ({ type: 'none' })),
 		revertToActive: jest.fn(async () => {}),
 		revertCheckpointToPlanned: jest.fn(async () => {}),
+		revertWorkflowBuildToPlanned: jest.fn(async () => {}),
 		markRunning: jest.fn(async () => {}),
+		markFailed: jest.fn(async () => {}),
 	};
 
 	service.revalidateActiveUser = jest.fn();
@@ -1666,6 +1670,37 @@ describe('InstanceAiService — planned task user revalidation', () => {
 			'group-1',
 			true,
 		);
+	});
+
+	it('reverts workflow-build tasks to planned when the follow-up run does not start', async () => {
+		const { service, plannedTaskService, graph } = createPlannedTaskSchedulerService();
+		const buildTask = {
+			id: 'wf-1',
+			kind: 'build-workflow',
+			title: 'Build workflow',
+			spec: 'Build the requested workflow',
+			deps: [],
+			status: 'planned',
+		};
+		graph.tasks = [buildTask];
+		service.revalidateActiveUser.mockResolvedValue(fakeUser);
+		service.startInternalFollowUpRun.mockResolvedValue('');
+		plannedTaskService.tick.mockResolvedValue({
+			type: 'orchestrate-build-workflow',
+			graph,
+			tasks: [buildTask],
+		});
+
+		await service.doSchedulePlannedTasks(fakeUser, 'thread-a');
+
+		expect(plannedTaskService.markRunning).toHaveBeenCalledWith('thread-a', 'wf-1', {
+			agentId: 'agent-001',
+		});
+		expect(plannedTaskService.revertWorkflowBuildToPlanned).toHaveBeenCalledWith(
+			'thread-a',
+			'wf-1',
+		);
+		expect(plannedTaskService.markFailed).not.toHaveBeenCalled();
 	});
 });
 

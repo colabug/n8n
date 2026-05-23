@@ -301,6 +301,65 @@ describe('useCanvasPreview', () => {
 	});
 
 	describe('auto-open on build result', () => {
+		test('auto-opens existing workflow preview when a direct workflow update starts', async () => {
+			const ctx = setup();
+			ctx.thread.isStreaming = true;
+
+			ctx.thread.messages = [
+				makeMessage({
+					agentTree: makeAgentNode({
+						toolCalls: [
+							makeToolCall({
+								toolCallId: 'tc-update',
+								toolName: 'workflows',
+								args: {
+									action: 'update',
+									workflowId: 'wf-existing',
+									name: 'Existing workflow',
+								},
+								isLoading: true,
+							}),
+						],
+					}),
+				}),
+			];
+			await nextTick();
+
+			expect(ctx.activeWorkflowId.value).toBe('wf-existing');
+			expect(ctx.isPreviewVisible.value).toBe(true);
+			expect(ctx.allArtifactTabs.value).toEqual([
+				expect.objectContaining({
+					id: 'wf-existing',
+					type: 'workflow',
+					name: 'Existing workflow',
+				}),
+			]);
+		});
+
+		test('does not auto-open active workflow update targets while hydrating', async () => {
+			const ctx = setup();
+			ctx.thread.isHydratingThread = true;
+
+			ctx.thread.messages = [
+				makeMessage({
+					agentTree: makeAgentNode({
+						toolCalls: [
+							makeToolCall({
+								toolCallId: 'tc-update',
+								toolName: 'workflows',
+								args: { action: 'update', workflowId: 'wf-historical' },
+								isLoading: true,
+							}),
+						],
+					}),
+				}),
+			];
+			await nextTick();
+
+			expect(ctx.activeTabId.value).toBeUndefined();
+			expect(ctx.isPreviewVisible.value).toBe(false);
+		});
+
 		test('auto-opens canvas when streaming and build result appears', async () => {
 			const ctx = setup();
 			ctx.thread.isStreaming = true;

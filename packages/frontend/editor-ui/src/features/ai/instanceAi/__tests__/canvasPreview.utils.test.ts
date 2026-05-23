@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import type { InstanceAiAgentNode, InstanceAiToolCallState } from '@n8n/api-types';
 import {
 	getLatestBuildResult,
+	getLatestActiveBuildTarget,
 	getLatestExecutionId,
 	getLatestWorkflowSetupResult,
 	getLatestDataTableResult,
@@ -171,6 +172,43 @@ describe('getLatestBuildResult', () => {
 			],
 		});
 		expect(getLatestBuildResult(parent)?.workflowId).toBe('wf-child');
+	});
+});
+
+describe('getLatestActiveBuildTarget', () => {
+	test('returns workflowId and toolCallId from loading workflow update call', () => {
+		const node = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolCallId: 'tc-update',
+					toolName: 'workflows',
+					args: { action: 'update', workflowId: 'wf-existing', name: 'Existing workflow' },
+					isLoading: true,
+				}),
+			],
+		});
+
+		expect(getLatestActiveBuildTarget(node)).toEqual({
+			workflowId: 'wf-existing',
+			toolCallId: 'tc-update',
+			name: 'Existing workflow',
+		});
+	});
+
+	test('ignores completed workflow update calls', () => {
+		const node = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolCallId: 'tc-update',
+					toolName: 'workflows',
+					args: { action: 'update', workflowId: 'wf-existing' },
+					isLoading: false,
+					result: { success: true, workflowId: 'wf-existing' },
+				}),
+			],
+		});
+
+		expect(getLatestActiveBuildTarget(node)).toBeUndefined();
 	});
 });
 

@@ -611,6 +611,61 @@ describe('PlannedTaskCoordinator', () => {
 		});
 	});
 
+	describe('revertWorkflowBuildToPlanned', () => {
+		it('rewinds a running build task to planned without cascading cancellation', async () => {
+			storage.update.mockImplementation(async (_threadId, updater) => {
+				const graph = makeGraph({
+					tasks: [
+						makeTaskRecord({
+							id: 'wf-1',
+							kind: 'build-workflow',
+							status: 'running',
+							agentId: 'agent-race',
+							startedAt: 123,
+						}),
+						makeTaskRecord({
+							id: 'verify-1',
+							kind: 'checkpoint',
+							status: 'planned',
+							deps: ['wf-1'],
+						}),
+					],
+				});
+				return await Promise.resolve(updater(graph));
+			});
+
+			const res = await coordinator.revertWorkflowBuildToPlanned('thread-1', 'wf-1');
+
+			expect(res.ok).toBe(true);
+			if (res.ok) {
+				const build = res.graph.tasks.find((t) => t.id === 'wf-1');
+				expect(build?.status).toBe('planned');
+				expect(build?.agentId).toBeUndefined();
+				expect(build?.startedAt).toBeUndefined();
+				const verify = res.graph.tasks.find((t) => t.id === 'verify-1');
+				expect(verify?.status).toBe('planned');
+				expect(verify?.error).toBeUndefined();
+			}
+		});
+
+		it('rejects when the target task is not a build task', async () => {
+			storage.update.mockImplementation(async (_threadId, updater) => {
+				const graph = makeGraph({
+					tasks: [makeTaskRecord({ id: 'verify-1', kind: 'checkpoint', status: 'running' })],
+				});
+				return await Promise.resolve(updater(graph));
+			});
+
+			const res = await coordinator.revertWorkflowBuildToPlanned('thread-1', 'verify-1');
+
+			expect(res).toEqual({
+				ok: false,
+				reason: 'wrong-kind',
+				actual: { kind: 'checkpoint' },
+			});
+		});
+	});
+
 	describe('tick', () => {
 		it('dispatches ready tasks with all deps satisfied', async () => {
 			storage.update.mockImplementation(async (_threadId, updater) => {
