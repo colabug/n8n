@@ -135,6 +135,14 @@ function isTelemetryConfigurableAgent(
 
 const INSTANCE_AI_CHECKPOINT_PRUNE_RETRY_MS = 30 * 1000;
 
+/**
+ * Upper bound on how long `shutdown()` will wait for in-flight executeRun /
+ * processResumedStream promises to drain after their abortControllers fire.
+ * Sized well below n8n's `gracefulShutdownTimeoutInS` (30s default) so a
+ * stuck agent can't burn the whole budget here.
+ */
+const INSTANCE_AI_SHUTDOWN_DRAIN_TIMEOUT_MS = 5 * 1000;
+
 function isTextMessagePart(part: unknown): part is { type: 'text'; text: string } {
 	return (
 		typeof part === 'object' &&
@@ -243,6 +251,15 @@ function createInertAbortSignal(): AbortSignal {
 	return new AbortController().signal;
 }
 
+/**
+ * Sentinel passed to `abortController.abort(reason)` when shutting down a
+ * thread that is waiting on an inline HITL confirmation. The catch handler
+ * in `executeRun` checks for it and skips the terminal-fallback /
+ * run-finish / snapshot writes so the plan/ask card stays intact on reload.
+ * See InstanceAiService.shutdown for the producer side.
+ */
+const INSTANCE_AI_SHUTDOWN_PRESERVE_HITL = 'service_shutdown_preserve_hitl';
+
 function getAbortReason(signal: AbortSignal): string {
 	const reason = (signal as AbortSignal & { reason?: unknown }).reason;
 	if (
@@ -255,6 +272,12 @@ function getAbortReason(signal: AbortSignal): string {
 	}
 	if (reason instanceof Error) return reason.message;
 	return typeof reason === 'string' ? reason : 'user_cancelled';
+}
+
+function isShutdownPreserveHitlAbort(signal: AbortSignal): boolean {
+	return (
+		(signal as AbortSignal & { reason?: unknown }).reason === INSTANCE_AI_SHUTDOWN_PRESERVE_HITL
+	);
 }
 
 // Stable UUID namespace for deterministic feedback IDs. Submitting the same
@@ -491,6 +514,15 @@ export class InstanceAiService {
 	private checkpointPruneTimer: NodeJS.Timeout | undefined;
 
 	private checkpointPruningStopped = true;
+
+	/**
+	 * In-flight `executeRun` / `processResumedStream` promises. Tracked so
+	 * `shutdown()` can drain them before n8n closes the DB connection — the
+	 * SDK's abort-driven `cleanupRun` and `executeRun`'s `finally` block
+	 * both write to the DB during teardown, and racing the connection close
+	 * surfaces as `DriverAlreadyReleasedError` for callers.
+	 */
+	private readonly inFlightExecutions = new Set<Promise<unknown>>();
 
 	constructor(
 		logger: Logger,
@@ -1335,15 +1367,17 @@ export class InstanceAiService {
 			this.threadPushRef.set(threadId, pushRef);
 		}
 
-		void this.executeRun(
-			user,
-			threadId,
-			runId,
-			message,
-			abortController,
-			attachments,
-			messageGroupId,
-			timeZone,
+		this.trackInFlightExecution(
+			this.executeRun(
+				user,
+				threadId,
+				runId,
+				message,
+				abortController,
+				attachments,
+				messageGroupId,
+				timeZone,
+			),
 		);
 
 		return runId;
@@ -1767,12 +1801,38 @@ export class InstanceAiService {
 		this.stopCheckpointPruning();
 		this.liveness.shutdown();
 
-		const { activeRuns, suspendedRuns } = this.runState.shutdown();
+		const { activeRuns, suspendedRuns, pendingThreadIds } = this.runState.shutdown();
+		const threadsWithPendingHitl = new Set(pendingThreadIds);
 		for (const run of activeRuns) {
-			// Publish run-finish first so the terminal event lands in the event
-			// bus before the snapshot reads it; saveAgentTreeSnapshot rebuilds
-			// the tree from the bus, so without this order the persisted tree
-			// would still look mid-stream after the process is gone.
+			// Runs holding an inline HITL confirmation (planner `submit-plan`,
+			// sub-agent `ask-user`) sit in `activeRuns` because the orchestrator
+			// is alive — it's just awaiting the in-process Promise. Their
+			// `instance_ai_pending_confirmations` row survives the restart and
+			// `handleOrphanedConfirmation` will issue the user-visible
+			// `restart_lost_confirmation` UserError + `run-finish` when (if)
+			// the user clicks confirm. If we publish run-finish + re-save the
+			// snapshot here, we'd permanently overwrite the plan/ask card with
+			// a `status: 'cancelled'` tree before the user has a chance to see
+			// it on reload.
+			if (threadsWithPendingHitl.has(run.threadId)) {
+				await this.finalizeRunTracing(run.runId, run.tracing, {
+					status: 'cancelled',
+					reason: 'service_shutdown',
+				});
+				// Abort with a sentinel reason so executeRun's catch handler
+				// recognises this as a "shut down preserving the HITL card"
+				// signal and skips its terminal-fallback / run-finish / snapshot
+				// writes. A plain abort() would otherwise overwrite the plan/ask
+				// snapshot with a cancelled tree before the process exits.
+				run.abortController.abort(INSTANCE_AI_SHUTDOWN_PRESERVE_HITL);
+				continue;
+			}
+
+			// Truly mid-stream run: publish run-finish first so the terminal
+			// event lands in the event bus before the snapshot reads it;
+			// saveAgentTreeSnapshot rebuilds the tree from the bus, so without
+			// this order the persisted tree would still look mid-stream after
+			// the process is gone.
 			this.publishRunFinish(run.threadId, run.runId, 'cancelled', 'service_shutdown');
 			await this.persistShutdownSnapshot(run.threadId, run.runId, run.messageGroupId);
 			await this.finalizeRunTracing(run.runId, run.tracing, {
@@ -1796,6 +1856,16 @@ export class InstanceAiService {
 			task.abortController.abort();
 			await this.finalizeBackgroundTaskTracing(task, 'cancelled');
 		}
+
+		// Drain the now-aborted executeRun / processResumedStream promises
+		// before returning. Each one's finally block does DB work
+		// (`schedulePlannedTasks`, `dropPendingConfirmationsForThread`) and
+		// the SDK's abort-driven `cleanupRun` issues `checkpointStore.delete`,
+		// all of which would race the connection close in `exitSuccessFully`
+		// and surface as `DriverAlreadyReleasedError` otherwise. Bounded so
+		// a hung agent can't block n8n's own graceful-shutdown deadline.
+		await this.drainInFlightExecutions(INSTANCE_AI_SHUTDOWN_DRAIN_TIMEOUT_MS);
+
 		const threadsWithTraces = new Set(
 			[...this.traceContextsByRunId.values()].map((entry) => entry.threadId),
 		);
@@ -1840,6 +1910,36 @@ export class InstanceAiService {
 			void this.pruneStaleCheckpoints();
 		}, delayMs);
 		this.checkpointPruneTimer.unref();
+	}
+
+	/**
+	 * Track a fire-and-forget run so `shutdown()` can wait for its cleanup
+	 * (finally block + SDK `cleanupRun`) to finish before the DB closes.
+	 * The promise removes itself from the set on settle so the set doesn't
+	 * grow unbounded across long-running threads.
+	 */
+	private trackInFlightExecution(promise: Promise<unknown>): void {
+		const tracked = promise.finally(() => {
+			this.inFlightExecutions.delete(tracked);
+		});
+		this.inFlightExecutions.add(tracked);
+	}
+
+	private async drainInFlightExecutions(timeoutMs: number): Promise<void> {
+		if (this.inFlightExecutions.size === 0) return;
+
+		const drain = Promise.allSettled([...this.inFlightExecutions]);
+		const timeout = new Promise<'timeout'>((resolve) => {
+			setTimeout(() => resolve('timeout'), timeoutMs).unref();
+		});
+
+		const outcome = await Promise.race([drain.then(() => 'drained' as const), timeout]);
+		if (outcome === 'timeout') {
+			this.logger.warn('Timed out waiting for in-flight Instance AI runs to drain', {
+				timeoutMs,
+				stillInFlight: this.inFlightExecutions.size,
+			});
+		}
 	}
 
 	private async pruneStaleCheckpoints(now = Date.now()): Promise<void> {
@@ -2887,18 +2987,20 @@ export class InstanceAiService {
 				? 'replan'
 				: 'background_task_completed';
 
-		void this.executeRun(
-			user,
-			threadId,
-			runId,
-			message,
-			abortController,
-			undefined,
-			messageGroupId,
-			timeZone,
-			isReplanFollowUp,
-			checkpoint,
-			resumeReason,
+		this.trackInFlightExecution(
+			this.executeRun(
+				user,
+				threadId,
+				runId,
+				message,
+				abortController,
+				undefined,
+				messageGroupId,
+				timeZone,
+				isReplanFollowUp,
+				checkpoint,
+				resumeReason,
+			),
 		);
 
 		return runId;
@@ -3550,6 +3652,16 @@ export class InstanceAiService {
 				return;
 			}
 
+			// `streamAgentRun` doesn't throw on abort — it returns
+			// `status: 'cancelled'`. When the abort came from shutdown's
+			// preserve-HITL path, falling through into the normal terminal
+			// handling would still call `evaluateTerminalResponse` and
+			// `finalizeRun`, both of which rewrite the snapshot. Bail out
+			// before either fires so the plan/ask card stays on disk.
+			if (result.status === 'cancelled' && isShutdownPreserveHitlAbort(signal)) {
+				return;
+			}
+
 			const outputText = await (result.text ?? Promise.resolve(''));
 			this.evaluateTerminalResponse(threadId, runId, result.status, {
 				messageGroupId,
@@ -3592,6 +3704,15 @@ export class InstanceAiService {
 			}
 		} catch (error) {
 			if (signal.aborted) {
+				// Shutdown asked us to preserve the HITL card on disk: the
+				// service has already finalised tracing and the per-run DB
+				// rows (pending_confirmation, snapshot) are the durable
+				// signal. Emitting the terminal-fallback text + run-finish
+				// here would clobber the plan/ask snapshot the user expects
+				// to see on reload, so just bail out.
+				if (isShutdownPreserveHitlAbort(signal)) {
+					return;
+				}
 				const runTimeout = this.liveness.consumeRunTimeout(runId);
 				const cancellationReason = runTimeout.timedOut
 					? INSTANCE_AI_RUN_TIMEOUT_REASON
@@ -3977,7 +4098,7 @@ export class InstanceAiService {
 
 		this.finalizeUnresumableOrphan(orphan);
 		throw new UserError(
-			'This confirmation was lost when the assistant restarted. Please refresh the page and start a new turn.',
+			'This confirmation was lost when the assistant restarted. Send a new message to continue.',
 		);
 	}
 
@@ -3994,19 +4115,29 @@ export class InstanceAiService {
 		orphan: NonNullable<Awaited<ReturnType<typeof this.pendingConfirmationRepo.claim>>>,
 	): void {
 		try {
+			// Live SSE clients use this to drop their interactive card.
 			this.publishRunFinish(
 				orphan.threadId,
 				orphan.runId,
 				'cancelled',
 				'restart_lost_confirmation',
 			);
-			void this.saveAgentTreeSnapshot(
-				orphan.threadId,
-				orphan.runId,
-				this.dbSnapshotStorage,
-				true,
-				orphan.messageGroupId ?? undefined,
-			);
+			// Terminalise the existing snapshot in place instead of rebuilding
+			// the tree from the in-memory event bus. After a restart the bus
+			// only carries the run-finish we just emitted, so a rebuild would
+			// replace the saved plan/ask card with an empty cancelled tree;
+			// `markRunCancelled` keeps the plan content intact while flipping
+			// all in-flight nodes and confirmation buttons off.
+			void this.dbSnapshotStorage
+				.markRunCancelled(orphan.threadId, orphan.runId)
+				.catch((error: unknown) => {
+					this.logger.warn('Failed to mark orphan snapshot as cancelled', {
+						requestId: orphan.requestId,
+						threadId: orphan.threadId,
+						runId: orphan.runId,
+						error: getErrorMessage(error),
+					});
+				});
 		} catch (error: unknown) {
 			this.logger.warn('Failed to finalize orphaned confirmation snapshot', {
 				requestId: orphan.requestId,
@@ -4238,19 +4369,21 @@ export class InstanceAiService {
 			},
 		});
 
-		void this.processResumedStream(agent, resumeData, {
-			runId,
-			agentRunId,
-			threadId,
-			user: activeUser,
-			toolCallId,
-			signal: abortController.signal,
-			abortController,
-			snapshotStorage: this.dbSnapshotStorage,
-			tracing: resumeTracing ?? tracing,
-			modelId,
-			checkpoint,
-		});
+		this.trackInFlightExecution(
+			this.processResumedStream(agent, resumeData, {
+				runId,
+				agentRunId,
+				threadId,
+				user: activeUser,
+				toolCallId,
+				signal: abortController.signal,
+				abortController,
+				snapshotStorage: this.dbSnapshotStorage,
+				tracing: resumeTracing ?? tracing,
+				modelId,
+				checkpoint,
+			}),
+		);
 		return true;
 	}
 
@@ -4444,6 +4577,10 @@ export class InstanceAiService {
 				return;
 			}
 
+			if (result.status === 'cancelled' && isShutdownPreserveHitlAbort(opts.signal)) {
+				return;
+			}
+
 			const outputText = await (result.text ?? Promise.resolve(''));
 			const messageGroupId = this.traceContextsByRunId.get(opts.runId)?.messageGroupId;
 			this.evaluateTerminalResponse(opts.threadId, opts.runId, result.status, {
@@ -4483,6 +4620,9 @@ export class InstanceAiService {
 			}
 		} catch (error) {
 			if (opts.signal.aborted) {
+				if (isShutdownPreserveHitlAbort(opts.signal)) {
+					return;
+				}
 				const messageGroupId = this.traceContextsByRunId.get(opts.runId)?.messageGroupId;
 				const runTimeout = this.liveness.consumeRunTimeout(opts.runId);
 				const cancellationReason = runTimeout.timedOut
