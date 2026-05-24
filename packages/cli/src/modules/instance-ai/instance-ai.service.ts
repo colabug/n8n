@@ -64,6 +64,7 @@ import {
 	generateTitleForRun,
 	patchThread,
 	type ConfirmationData,
+	type AgentDbMessage,
 	type BuiltMemory,
 	type DomainAccessTracker,
 	type FilesystemMutationGuardSetter,
@@ -124,6 +125,10 @@ import {
 
 function getErrorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
 }
 
 function isTelemetryConfigurableAgent(
@@ -326,6 +331,30 @@ function getAbortReason(signal: AbortSignal): string {
 	}
 	if (reason instanceof Error) return reason.message;
 	return typeof reason === 'string' ? reason : 'user_cancelled';
+}
+
+function createUserInputMessage(content: Message['content']): AgentDbMessage {
+	return {
+		id: `msg_${nanoid()}`,
+		createdAt: new Date(),
+		role: 'user',
+		content,
+	};
+}
+
+type PendingUserInputMessage = AgentDbMessage & {
+	metadata: Record<string, unknown> & { n8nPendingUserInput: true };
+};
+
+function createPendingUserInputMessage(message: AgentDbMessage): PendingUserInputMessage {
+	const metadata = 'metadata' in message && isRecord(message.metadata) ? message.metadata : {};
+	return {
+		...message,
+		metadata: {
+			...metadata,
+			n8nPendingUserInput: true,
+		},
+	};
 }
 
 // Stable UUID namespace for deterministic feedback IDs. Submitting the same
@@ -556,6 +585,8 @@ export class InstanceAiService {
 	private readonly pendingCheckpointReentries = new Map<string, Set<string>>();
 
 	private readonly pendingTerminalOutcomes = new Map<string, TerminalOutcome>();
+
+	private pendingUserInputMessageIdsByRunId?: Map<string, string> = new Map();
 
 	private terminalOutcomeStorage?: TerminalOutcomeStorage;
 
@@ -3444,30 +3475,30 @@ export class InstanceAiService {
 						},
 					})
 				: undefined;
-			let streamInput: string | Message[];
+			let streamInput: string | AgentDbMessage[];
 			try {
 				// Compose runtime input: conversation summary → background tasks → user message
 				const fullMessage = conversationSummary
 					? `${conversationSummary}\n\n${messageWithoutSummary}`
 					: messageWithoutSummary;
 
-				// Only include non-structured attachments as raw multimodal content
-				if (nonStructuredAttachments.length > 0) {
-					streamInput = [
-						{
-							role: 'user' as const,
-							content: [
-								{ type: 'text' as const, text: fullMessage },
-								...nonStructuredAttachments.map((attachment) => ({
-									type: 'file' as const,
-									data: attachment.data,
-									mediaType: attachment.mimeType,
-								})),
-							],
-						},
-					];
-				} else {
-					streamInput = fullMessage;
+				const userInputMessage = createUserInputMessage([
+					{ type: 'text' as const, text: fullMessage },
+					...nonStructuredAttachments.map((attachment) => ({
+						type: 'file' as const,
+						data: attachment.data,
+						mediaType: attachment.mimeType,
+					})),
+				]);
+				streamInput = nonStructuredAttachments.length > 0 ? [userInputMessage] : fullMessage;
+				// Hydrate the visible user turn during active runs, without feeding it back as history.
+				await memory.saveMessages({
+					threadId,
+					resourceId: user.id,
+					messages: [createPendingUserInputMessage(userInputMessage)],
+				});
+				if (typeof streamInput === 'string') {
+					this.getPendingUserInputMessageMap().set(runId, userInputMessage.id);
 				}
 
 				if (promptBuildRun && tracing) {
@@ -3826,6 +3857,7 @@ export class InstanceAiService {
 			//      now (with no live run) picks it up. schedulerLocks serializes
 			//      this call, and tick() is a no-op when no graph exists.
 			if (!this.runState.hasSuspendedRun(threadId)) {
+				await this.deletePendingUserInputMessage(runId);
 				if (checkpoint?.isCheckpointFollowUp) {
 					await this.finalizeCheckpointFollowUp(user, threadId, checkpoint.checkpointTaskId);
 				} else if (plannedBuild) {
@@ -3840,6 +3872,28 @@ export class InstanceAiService {
 				}
 				await this.drainPendingCheckpointReentries(user, threadId);
 			}
+		}
+	}
+
+	private getPendingUserInputMessageMap(): Map<string, string> {
+		this.pendingUserInputMessageIdsByRunId ??= new Map();
+		return this.pendingUserInputMessageIdsByRunId;
+	}
+
+	private async deletePendingUserInputMessage(runId: string): Promise<void> {
+		const pendingUserInputMessageIds = this.getPendingUserInputMessageMap();
+		const messageId = pendingUserInputMessageIds.get(runId);
+		if (!messageId) return;
+
+		pendingUserInputMessageIds.delete(runId);
+		try {
+			await this.agentMemory.deleteMessages([messageId]);
+		} catch (error) {
+			this.logger.warn('Failed to delete pending Instance AI user input message', {
+				runId,
+				messageId,
+				error: getErrorMessage(error),
+			});
 		}
 	}
 
@@ -4550,6 +4604,7 @@ export class InstanceAiService {
 			// a background task settled while they were active or suspended and
 			// the orchestrate-checkpoint branch was skipped because of hasLiveRun.
 			if (!this.runState.hasSuspendedRun(opts.threadId)) {
+				await this.deletePendingUserInputMessage(opts.runId);
 				if (opts.checkpoint?.isCheckpointFollowUp) {
 					await this.finalizeCheckpointFollowUp(
 						opts.user,
@@ -4935,6 +4990,7 @@ export class InstanceAiService {
 				...(runTimeout ? { runTimeout } : {}),
 			}),
 		});
+		await this.deletePendingUserInputMessage(suspended.runId);
 	}
 
 	private async reapAiTemporaryForThreadCleanup(threadId: string): Promise<void> {
