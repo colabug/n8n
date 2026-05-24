@@ -115,222 +115,99 @@ const searchKnowledgeParsingSchema = z.discriminatedUnion('operation', [
 const searchKnowledgeInputSchema: JSONSchema7 = {
 	type: 'object',
 	description:
-		'Use exactly one operation shape. Do not include fields from other operations. Use csv_query for CSV row/column lookups.',
-	oneOf: [
-		{
+		'Use exactly one operation shape. Do not include fields from other operations. ' +
+		'Use csv_query, not search/read/command, for CSV row/column lookups.',
+	additionalProperties: false,
+	required: ['operation'],
+	properties: {
+		operation: {
+			type: 'string',
+			description:
+				'Operation to perform. Allowed values: list, search, read, command, csv_query. For CSV row/column lookups, use csv_query.',
+		},
+		query: {
+			type: 'string',
+			minLength: 1,
+			description: 'For operation=search only: search pattern.',
+		},
+		caseInsensitive: {
+			type: 'boolean',
+			description: 'For operation=search only: run case-insensitive search.',
+		},
+		fixedStrings: {
+			type: 'boolean',
+			description:
+				'For operation=search only: treat query as a fixed string instead of a regex. Defaults to true.',
+		},
+		context: {
+			type: 'integer',
+			minimum: 0,
+			maximum: 5,
+			description: 'For operation=search only: number of surrounding context lines.',
+		},
+		files: {
+			type: 'array',
+			maxItems: 10,
+			items: { type: 'string' },
+			description: 'For operation=search only: optional file ids or relative paths to search.',
+		},
+		file: {
+			type: 'string',
+			minLength: 1,
+			description: 'For operation=read or csv_query: file id or relative path.',
+		},
+		lineRange: {
 			type: 'object',
 			additionalProperties: false,
-			required: ['operation'],
+			description: 'For operation=read only: optional line range to read.',
 			properties: {
-				operation: {
-					const: 'list',
-					description:
-						'List uploaded knowledge files with their ids, names, paths, and MIME types.',
-				},
+				start: { type: 'integer', minimum: 1 },
+				end: { type: 'integer', minimum: 1 },
 			},
 		},
-		{
+		request: {
 			type: 'object',
-			additionalProperties: false,
-			required: ['operation', 'query'],
-			properties: {
-				operation: { const: 'search', description: 'Search text files using git grep.' },
-				query: { type: 'string', minLength: 1, description: 'Search pattern.' },
-				caseInsensitive: { type: 'boolean', description: 'Run case-insensitive search.' },
-				fixedStrings: {
-					type: 'boolean',
-					description: 'Treat query as a fixed string instead of a regex. Defaults to true.',
-				},
-				context: {
-					type: 'integer',
-					minimum: 0,
-					maximum: 5,
-					description: 'Number of surrounding context lines.',
-				},
-				files: {
-					type: 'array',
-					maxItems: 10,
-					items: { type: 'string' },
-					description: 'Optional file ids or relative paths to search.',
-				},
-			},
+			description:
+				'For operation=command only: low-level file command request. Allowed commands: git_grep, find, cat, sed, awk, xargs.',
+			additionalProperties: true,
 		},
-		{
-			type: 'object',
-			additionalProperties: false,
-			required: ['operation', 'file'],
-			properties: {
-				operation: { const: 'read', description: 'Read a whole file or a line range.' },
-				file: { type: 'string', minLength: 1, description: 'File id or relative path.' },
-				lineRange: {
-					type: 'object',
-					additionalProperties: false,
-					required: ['start', 'end'],
-					properties: {
-						start: { type: 'integer', minimum: 1 },
-						end: { type: 'integer', minimum: 1 },
+		where: {
+			type: 'array',
+			maxItems: 10,
+			description:
+				'For operation=csv_query only: row filters ANDed together. Each filter has column, op, and value. Allowed op values: eq, in, contains. For op=in, value must be an array of strings.',
+			items: {
+				type: 'object',
+				additionalProperties: true,
+				required: ['column', 'op', 'value'],
+				properties: {
+					column: { type: 'string', minLength: 1 },
+					op: {
+						type: 'string',
+						description: 'Allowed values: eq, in, contains.',
+					},
+					value: {
+						description:
+							'String value for eq/contains, or array of strings for in. Local validation enforces the exact shape.',
 					},
 				},
 			},
 		},
-		{
-			type: 'object',
-			additionalProperties: false,
-			required: ['operation', 'request'],
-			properties: {
-				operation: { const: 'command', description: 'Run an allowed low-level file command.' },
-				request: {
-					oneOf: [
-						{
-							type: 'object',
-							additionalProperties: false,
-							required: ['command', 'pattern'],
-							properties: {
-								command: { const: 'git_grep' },
-								pattern: { type: 'string', minLength: 1 },
-								caseInsensitive: { type: 'boolean' },
-								fixedStrings: { type: 'boolean' },
-								context: { type: 'integer', minimum: 0, maximum: 5 },
-								files: { type: 'array', maxItems: 10, items: { type: 'string' } },
-							},
-						},
-						{
-							type: 'object',
-							additionalProperties: false,
-							required: ['command'],
-							properties: {
-								command: { const: 'find' },
-								name: { type: 'string' },
-								maxDepth: { type: 'integer', minimum: 1, maximum: 5 },
-							},
-						},
-						{
-							type: 'object',
-							additionalProperties: false,
-							required: ['command', 'file'],
-							properties: {
-								command: { const: 'cat' },
-								file: { type: 'string', minLength: 1 },
-							},
-						},
-						{
-							type: 'object',
-							additionalProperties: false,
-							required: ['command', 'file', 'startLine', 'endLine'],
-							properties: {
-								command: { const: 'sed' },
-								file: { type: 'string', minLength: 1 },
-								startLine: { type: 'integer', minimum: 1 },
-								endLine: { type: 'integer', minimum: 1 },
-							},
-						},
-						{
-							type: 'object',
-							additionalProperties: false,
-							required: ['command', 'file', 'printFields'],
-							properties: {
-								command: { const: 'awk' },
-								file: { type: 'string', minLength: 1 },
-								fieldSeparator: { type: 'string', minLength: 1, maxLength: 4 },
-								printFields: {
-									type: 'array',
-									minItems: 1,
-									maxItems: 10,
-									items: { type: 'integer', minimum: 1, maximum: 50 },
-								},
-							},
-						},
-						{
-							type: 'object',
-							additionalProperties: false,
-							required: ['command', 'commandName', 'files'],
-							properties: {
-								command: { const: 'xargs' },
-								commandName: { const: 'cat' },
-								files: {
-									type: 'array',
-									minItems: 1,
-									maxItems: 10,
-									items: { type: 'string', minLength: 1 },
-								},
-							},
-						},
-					],
-				},
-			},
+		select: {
+			type: 'array',
+			minItems: 1,
+			maxItems: 50,
+			items: { type: 'string', minLength: 1 },
+			description: 'For operation=csv_query only: columns to return.',
 		},
-		{
-			type: 'object',
-			additionalProperties: false,
-			required: ['operation', 'file', 'select'],
-			properties: {
-				operation: {
-					const: 'csv_query',
-					description:
-						'Query a CSV file by exact column filters and return selected columns. Prefer this over search/read/command for CSV row lookups.',
-				},
-				file: { type: 'string', minLength: 1, description: 'CSV file id or relative path.' },
-				where: {
-					type: 'array',
-					maxItems: 10,
-					description: 'Optional row filters. All filters are ANDed.',
-					items: {
-						oneOf: [
-							{
-								type: 'object',
-								additionalProperties: false,
-								required: ['column', 'op', 'value'],
-								properties: {
-									column: { type: 'string', minLength: 1 },
-									op: { const: 'eq' },
-									value: { type: 'string' },
-								},
-							},
-							{
-								type: 'object',
-								additionalProperties: false,
-								required: ['column', 'op', 'value'],
-								properties: {
-									column: { type: 'string', minLength: 1 },
-									op: { const: 'in' },
-									value: {
-										type: 'array',
-										minItems: 1,
-										maxItems: 50,
-										items: { type: 'string' },
-									},
-								},
-							},
-							{
-								type: 'object',
-								additionalProperties: false,
-								required: ['column', 'op', 'value'],
-								properties: {
-									column: { type: 'string', minLength: 1 },
-									op: { const: 'contains' },
-									value: { type: 'string' },
-								},
-							},
-						],
-					},
-				},
-				select: {
-					type: 'array',
-					minItems: 1,
-					maxItems: 50,
-					items: { type: 'string', minLength: 1 },
-					description: 'Columns to return.',
-				},
-				limit: {
-					type: 'integer',
-					minimum: 1,
-					maximum: 100,
-					default: 20,
-					description: 'Maximum rows to return. Defaults to 20.',
-				},
-			},
+		limit: {
+			type: 'integer',
+			minimum: 1,
+			maximum: 100,
+			default: 20,
+			description: 'For operation=csv_query only: maximum rows to return. Defaults to 20.',
 		},
-	],
+	},
 };
 
 const knowledgeFileOutputSchema = z.object({

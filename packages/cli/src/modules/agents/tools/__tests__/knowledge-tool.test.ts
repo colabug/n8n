@@ -32,16 +32,13 @@ describe('search_knowledge tool', () => {
 
 		expect(tool.inputSchema).toMatchObject({
 			type: 'object',
-			oneOf: expect.arrayContaining([
-				expect.objectContaining({
-					properties: expect.objectContaining({
-						operation: expect.objectContaining({ const: 'csv_query' }),
-						where: expect.any(Object),
-						select: expect.any(Object),
-					}),
-				}),
-			]),
+			properties: expect.objectContaining({
+				operation: expect.objectContaining({ type: 'string' }),
+				where: expect.any(Object),
+				select: expect.any(Object),
+			}),
 		});
+		expect(tool.inputSchema).not.toHaveProperty('oneOf');
 	});
 
 	it('lists uploaded knowledge files', async () => {
