@@ -84,6 +84,7 @@ import {
 	type TerminalOutcome,
 	type TerminalResponseDecision,
 	type TerminalResponseStatus,
+	type WorkflowBuildOutcome,
 	type WorkSummary,
 	WorkflowTaskCoordinator,
 	WorkflowLoopStorage,
@@ -439,6 +440,12 @@ interface PlannedBuildFollowUp {
 	title: string;
 	spec: string;
 	workflowId?: string;
+	recoveredSuccess?: PlannedBuildSuccessRecovery;
+}
+
+interface PlannedBuildSuccessRecovery {
+	result: string;
+	outcome: WorkflowBuildOutcome;
 }
 
 /** Collapse the frontend's typed confirmation union into the flat payload
@@ -3232,9 +3239,14 @@ export class InstanceAiService {
 				context.permissions = {
 					...context.permissions,
 					...(PLANNED_TASK_PERMISSION_OVERRIDES['build-workflow'] ?? {}),
+					...(plannedBuild.workflowId
+						? { updateWorkflow: 'always_allow' as const }
+						: { createWorkflow: 'always_allow' as const }),
 				} as typeof context.permissions;
 				if (plannedBuild.workflowId) {
 					context.allowedUpdateWorkflowIds = new Set([plannedBuild.workflowId]);
+				} else {
+					context.allowedUpdateWorkflowIds = new Set();
 				}
 				if (orchestrationContext.plannedTaskService) {
 					context.plannedBuildTask = {
@@ -3248,6 +3260,9 @@ export class InstanceAiService {
 						...(orchestrationContext.workflowTaskService
 							? { workflowTaskService: orchestrationContext.workflowTaskService }
 							: {}),
+						onSavedWorkflowBuildOutcome: (saved) => {
+							plannedBuild.recoveredSuccess = saved;
+						},
 					};
 				}
 			}
@@ -3814,7 +3829,12 @@ export class InstanceAiService {
 				if (checkpoint?.isCheckpointFollowUp) {
 					await this.finalizeCheckpointFollowUp(user, threadId, checkpoint.checkpointTaskId);
 				} else if (plannedBuild) {
-					await this.finalizePlannedBuildFollowUp(user, threadId, plannedBuild.taskId);
+					await this.finalizePlannedBuildFollowUp(
+						user,
+						threadId,
+						plannedBuild.taskId,
+						plannedBuild.recoveredSuccess,
+					);
 				} else {
 					await this.schedulePlannedTasks(user, threadId);
 				}
@@ -4012,19 +4032,28 @@ export class InstanceAiService {
 		user: User,
 		threadId: string,
 		buildTaskId: string,
+		recoveredSuccess?: PlannedBuildSuccessRecovery,
 	): Promise<void> {
 		try {
 			const { plannedTaskService } = await this.createPlannedTaskState();
 			const graph = await plannedTaskService.getGraph(threadId);
 			const task = graph?.tasks.find((t) => t.id === buildTaskId);
 			if (task && task.status === 'running') {
-				this.logger.warn('Workflow build follow-up ended without a successful build', {
-					threadId,
-					buildTaskId,
-				});
-				await plannedTaskService.markFailed(threadId, buildTaskId, {
-					error: 'Workflow build follow-up ended without a successful build',
-				});
+				if (recoveredSuccess) {
+					this.logger.warn('Workflow build follow-up saved a workflow but missed task reporting', {
+						threadId,
+						buildTaskId,
+					});
+					await plannedTaskService.markSucceeded(threadId, buildTaskId, recoveredSuccess);
+				} else {
+					this.logger.warn('Workflow build follow-up ended without a successful build', {
+						threadId,
+						buildTaskId,
+					});
+					await plannedTaskService.markFailed(threadId, buildTaskId, {
+						error: 'Workflow build follow-up ended without a successful build',
+					});
+				}
 				const nextGraph = await plannedTaskService.getGraph(threadId);
 				if (nextGraph) {
 					await this.syncPlannedTasksToUi(threadId, nextGraph);
@@ -4532,6 +4561,7 @@ export class InstanceAiService {
 						opts.user,
 						opts.threadId,
 						opts.plannedBuild.taskId,
+						opts.plannedBuild.recoveredSuccess,
 					);
 				} else {
 					await this.schedulePlannedTasks(opts.user, opts.threadId);

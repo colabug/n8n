@@ -108,6 +108,14 @@ describe('InstanceAiMarkdown', () => {
 		expect(chunks[1]).not.toHaveTextContent('n8n-resource://workflow/wf-1');
 	});
 
+	it('should strip internal blocks before rendering markdown chunks', () => {
+		const result = getProcessedContent(
+			'Visible summary.\n<planning-blueprint>{"items":[]}</planning-blueprint>',
+		);
+
+		expect(result).toBe('Visible summary.');
+	});
+
 	it('should replace resource name with n8n-resource link', () => {
 		const registry = makeRegistry([{ type: 'workflow', id: 'wf-1', name: 'My Workflow' }]);
 		const result = getProcessedContent('Check out My Workflow please', registry);
@@ -228,5 +236,40 @@ describe('InstanceAiMarkdown', () => {
 
 		expect(openWorkflowPreview).toHaveBeenCalledTimes(2);
 		expect(openWorkflowPreview).toHaveBeenCalledWith('wf-1');
+	});
+
+	it('opens inline workflow preview for standard workflow route links', async () => {
+		const openWorkflowPreview = vi.fn(() => true);
+		const { container } = renderComponent({
+			props: { content: 'Open [workflow](/workflow/wf-1)' },
+			global: {
+				provide: { openWorkflowPreview },
+			},
+		});
+
+		const link = container.querySelector('a');
+		expect(link).not.toBeNull();
+		await fireEvent.click(link as HTMLAnchorElement);
+
+		expect(link?.dataset.resourceId).toBe('wf-1');
+		expect(openWorkflowPreview).toHaveBeenCalledWith('wf-1');
+	});
+
+	it('opens inline data-table preview for standard project data-table route links', async () => {
+		const openDataTablePreview = vi.fn(() => true);
+		const { container } = renderComponent({
+			props: { content: 'Open [table](/projects/project-1/datatables/table-1)' },
+			global: {
+				provide: { openDataTablePreview },
+			},
+		});
+
+		const link = container.querySelector('a');
+		expect(link).not.toBeNull();
+		await fireEvent.click(link as HTMLAnchorElement);
+
+		expect(link?.dataset.resourceId).toBe('table-1');
+		expect(link?.dataset.resourceProjectId).toBe('project-1');
+		expect(openDataTablePreview).toHaveBeenCalledWith('table-1', 'project-1');
 	});
 });

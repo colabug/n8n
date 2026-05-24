@@ -1,6 +1,6 @@
 {
 	"id": "workflow-builder-skill-loading",
-	"userMessage": "Use the workflow-builder skill to create a simple workflow named Lead intake that starts with a manual trigger and sets a status field to new.",
+	"userMessage": "Workflow ID wf-existing needs a simple edit: use the workflow-builder skill to update it so it sets a status field to new.",
 	"expectedToolInvocations": {
 		"allOfToolCalls": [
 			{
@@ -9,7 +9,7 @@
 			},
 			{
 				"toolName": "workflows",
-				"argsContainAny": ["create", "Lead intake"]
+				"argsContainAny": ["update", "wf-existing", "status"]
 			}
 		],
 		"noneOf": [
@@ -20,5 +20,5 @@
 			"spawn_sub_agent:delegate"
 		]
 	},
-	"rationale": "Regression coverage for workflow-builder runtime skill routing. Workflow building must load workflow-builder and call workflows(action=\"create\"|\"update\") directly; the forbidden entries assert legacy workflow-building delegation paths are not used."
+	"rationale": "Regression coverage for workflow-builder runtime skill routing on existing workflow edits. The orchestrator must load workflow-builder and call workflows(action=\"update\") directly; the forbidden entries assert legacy workflow-building delegation paths are not used."
 }

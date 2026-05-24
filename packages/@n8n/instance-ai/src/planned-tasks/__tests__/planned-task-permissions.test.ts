@@ -19,18 +19,18 @@ function makeContext(
 
 describe('applyPlannedTaskPermissions', () => {
 	describe('build-workflow', () => {
-		it('should auto-approve workflow and data-table work owned by the builder task', () => {
+		it('should auto-approve data-table work owned by the builder task', () => {
 			const context = makeContext();
 			const result = applyPlannedTaskPermissions(context, 'build-workflow');
 
 			expect(result.permissions).toMatchObject({
-				createWorkflow: 'always_allow',
-				updateWorkflow: 'always_allow',
-				runWorkflow: 'always_allow',
 				createDataTable: 'always_allow',
 				mutateDataTableSchema: 'always_allow',
 				mutateDataTableRows: 'always_allow',
 			});
+			expect(result.permissions?.createWorkflow).toBe('require_approval');
+			expect(result.permissions?.updateWorkflow).toBe('require_approval');
+			expect(result.permissions?.runWorkflow).toBe('require_approval');
 			expect(result.permissions?.publishWorkflow).toBe('require_approval');
 		});
 
@@ -48,7 +48,7 @@ describe('applyPlannedTaskPermissions', () => {
 			const result = applyPlannedTaskPermissions(context, 'build-workflow');
 
 			expect(result.permissions?.fetchUrl).toBe('always_allow');
-			expect(result.permissions?.createWorkflow).toBe('always_allow');
+			expect(result.permissions?.createDataTable).toBe('always_allow');
 		});
 	});
 

@@ -43,6 +43,9 @@ patch errors, and finish with a concise result.
    `workflows(action="create")` for new workflows or
    `workflows(action="update", workflowId, ...)` for existing workflows. For
    small fixes, prefer `patches` over resending the full workflow code.
+   Only set `temporary: true` on `workflows(action="create")` for scratch or
+   intermediate drafts that should be archived automatically; omit it for final
+   user-visible workflows, including approved helper workflows.
 6. If `workflows(action="create"|"update")` returns validation errors, patch and
    retry in the same turn. Stop only after a successful save or a concrete
    blocker.

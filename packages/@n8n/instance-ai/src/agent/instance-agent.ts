@@ -1,4 +1,4 @@
-import { Agent } from '@n8n/agents';
+import { Agent, type RuntimeSkillSource } from '@n8n/agents';
 
 import {
 	addSafeMcpTools,
@@ -21,6 +21,8 @@ import type { CreateInstanceAgentOptions, InstanceAiToolRegistry } from '../type
 
 // ── Agent factory ───────────────────────────────────────────────────────────
 
+const WORKFLOW_BUILDER_SKILL_ID = 'workflow-builder';
+
 function splitDeferredTools(
 	tools: InstanceAiToolRegistry,
 	options: { isCheckpointFollowUp?: boolean } = {},
@@ -40,6 +42,26 @@ function splitDeferredTools(
 	}
 
 	return { coreTools, deferredTools };
+}
+
+function trackLoadedRuntimeSkills(
+	source: RuntimeSkillSource,
+	context: CreateInstanceAgentOptions['context'],
+): RuntimeSkillSource {
+	const hasWorkflowBuilder = source.registry.skills.some(
+		(skill) => skill.id === WORKFLOW_BUILDER_SKILL_ID,
+	);
+	if (!hasWorkflowBuilder) return source;
+
+	const loadedSkills = (context.loadedSkills ??= new Set<string>());
+	return {
+		...source,
+		loadSkill: async (skillId) => {
+			const skill = await source.loadSkill(skillId);
+			if (skill) loadedSkills.add(skill.id);
+			return skill;
+		},
+	};
 }
 
 export async function createInstanceAgent(options: CreateInstanceAgentOptions): Promise<Agent> {
@@ -180,7 +202,7 @@ export async function createInstanceAgent(options: CreateInstanceAgentOptions): 
 	}
 	const runtimeSkills = orchestrationContext?.runtimeSkills;
 	if (hasRuntimeSkills(runtimeSkills)) {
-		agent.skills(runtimeSkills);
+		agent.skills(trackLoadedRuntimeSkills(runtimeSkills, context));
 	}
 	if (telemetry) {
 		agent.telemetry(telemetry);

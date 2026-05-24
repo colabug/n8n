@@ -197,6 +197,29 @@ describe('workflow code create/update approval flow', () => {
 		expect(ctx.workflowService.createFromWorkflowJSON).not.toHaveBeenCalled();
 	});
 
+	it('requires the workflow-builder skill when runtime skill tracking is active', async () => {
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{ loadedSkills: new Set<string>() },
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context, suspend } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toEqual({
+			success: false,
+			errors: [
+				'Load the workflow-builder skill with load_skill before calling workflows(action="create"|"update").',
+			],
+		});
+		expect(suspend).not.toHaveBeenCalled();
+		expect(ctx.workflowService.createFromWorkflowJSON).not.toHaveBeenCalled();
+	});
+
 	it('does not suspend when the save is always allowed', async () => {
 		const ctx = makeContext({ createWorkflow: 'always_allow' });
 		const service = createWorkflowCodeService(ctx);
@@ -209,8 +232,12 @@ describe('workflow code create/update approval flow', () => {
 
 		expect(suspend).not.toHaveBeenCalled();
 		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalled();
-		expect(ctx.workflowService.clearAiTemporary).toHaveBeenCalledWith('created-wf');
-		expect(ctx.aiCreatedWorkflowIds?.has('created-wf')).toBe(false);
+		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalledWith(
+			expect.objectContaining({ name: 'Lead intake' }),
+			{},
+		);
+		expect(ctx.workflowService.clearAiTemporary).not.toHaveBeenCalled();
+		expect(ctx.aiCreatedWorkflowIds?.has('created-wf')).toBeUndefined();
 		expect(result).toMatchObject({
 			success: true,
 			workflowId: 'created-wf',
@@ -253,28 +280,59 @@ describe('workflow code create/update approval flow', () => {
 		});
 	});
 
-	it('returns a failed result when a created workflow cannot be promoted', async () => {
+	it('keeps explicit temporary create outputs eligible for cleanup', async () => {
 		const ctx = makeContext({ createWorkflow: 'always_allow' });
-		(ctx.workflowService.clearAiTemporary as jest.Mock).mockRejectedValueOnce(
-			new Error('temporary marker unavailable'),
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake', temporary: true },
+			context,
+		);
+
+		expect(result).toMatchObject({
+			success: true,
+			workflowId: 'created-wf',
+			workflowName: 'Lead intake',
+			temporary: true,
+		});
+		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalledWith(
+			expect.objectContaining({ name: 'Lead intake' }),
+			{ markAsAiTemporary: true },
+		);
+		expect(ctx.aiCreatedWorkflowIds?.has('created-wf')).toBe(true);
+		expect(ctx.workflowService.clearAiTemporary).not.toHaveBeenCalled();
+	});
+
+	it('rejects temporary creates for planned build tasks before saving', async () => {
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi-1',
+					title: 'Build workflow',
+					spec: 'Build it',
+					plannedTaskService: { markSucceeded: jest.fn() },
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+			},
 		);
 		const service = createWorkflowCodeService(ctx);
 		const { context } = makeToolContext();
 
 		const result = await service.create(
-			{ action: 'create', code: validCode, name: 'Lead intake' },
+			{ action: 'create', code: validCode, name: 'Lead intake', temporary: true },
 			context,
 		);
 
-		expect(result).toMatchObject({
+		expect(ctx.workflowService.createFromWorkflowJSON).not.toHaveBeenCalled();
+		expect(result).toEqual({
 			success: false,
-			workflowId: 'created-wf',
-			workflowName: 'Lead intake',
 			errors: [
-				'Workflow was saved, but failed to finalize temporary state: temporary marker unavailable',
+				'Do not set temporary: true for planned build tasks. Omit temporary for final planned workflow deliverables.',
 			],
 		});
-		expect(ctx.aiCreatedWorkflowIds?.has('created-wf')).toBe(true);
 	});
 
 	it('honors scoped update approval for pre-approved checkpoint workflow repairs', async () => {
@@ -318,7 +376,74 @@ describe('workflow code create/update approval flow', () => {
 		expect(result).toEqual({ success: false, errors: ['Workflow save failed: suspended'] });
 	});
 
-	it('returns a failed result when planned build reporting fails after save', async () => {
+	it('does not let a planned create task update arbitrary workflows without approval', async () => {
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow', updateWorkflow: 'always_allow' },
+			{
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi-1',
+					title: 'Build workflow',
+					spec: 'Build it',
+					plannedTaskService: { markSucceeded: jest.fn() },
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+				allowedUpdateWorkflowIds: new Set(),
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
+
+		const result = await service.update(
+			{ action: 'update', code: validCode, workflowId: 'wf-other', name: 'Lead intake' },
+			{ resumeData: undefined, suspend } as WorkflowCodeToolContext,
+		);
+
+		expect(suspend).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Update workflow Lead intake (ID: wf-other)',
+				severity: 'info',
+			}),
+		);
+		expect(ctx.workflowService.updateFromWorkflowJSON).not.toHaveBeenCalled();
+		expect(result).toEqual({ success: false, errors: ['Workflow save failed: suspended'] });
+	});
+
+	it('does not let a planned update task create a new workflow without approval', async () => {
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow', updateWorkflow: 'always_allow' },
+			{
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi-1',
+					title: 'Update workflow',
+					spec: 'Update it',
+					workflowId: 'wf-1',
+					plannedTaskService: { markSucceeded: jest.fn() },
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+				allowedUpdateWorkflowIds: new Set(['wf-1']),
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			{ resumeData: undefined, suspend } as WorkflowCodeToolContext,
+		);
+
+		expect(suspend).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: 'Create workflow Lead intake',
+				severity: 'info',
+			}),
+		);
+		expect(ctx.workflowService.createFromWorkflowJSON).not.toHaveBeenCalled();
+		expect(result).toEqual({ success: false, errors: ['Workflow save failed: suspended'] });
+	});
+
+	it('returns a successful save with warning when planned build reporting fails after save', async () => {
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow' },
 			{
@@ -347,13 +472,83 @@ describe('workflow code create/update approval flow', () => {
 
 		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalled();
 		expect(ctx.workflowService.clearAiTemporary).not.toHaveBeenCalled();
-		expect(ctx.aiCreatedWorkflowIds?.has('created-wf')).toBe(true);
+		expect(ctx.aiCreatedWorkflowIds?.has('created-wf')).toBeUndefined();
 		expect(result).toMatchObject({
-			success: false,
+			success: true,
 			workflowId: 'created-wf',
 			workflowName: 'Lead intake',
-			errors: ['Workflow was saved, but failed to update planned task state: storage unavailable'],
+			warnings: ['Workflow was saved, but planned task state update failed: storage unavailable'],
 		});
+	});
+
+	it('does not cache recovered success when build outcome reporting fails', async () => {
+		const onSavedWorkflowBuildOutcome = jest.fn();
+		const markSucceeded = jest.fn();
+		const reportBuildOutcome = jest.fn().mockRejectedValue(new Error('loop storage unavailable'));
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi-1',
+					title: 'Build workflow',
+					spec: 'Build it',
+					plannedTaskService: { markSucceeded },
+					workflowTaskService: { reportBuildOutcome },
+					onSavedWorkflowBuildOutcome,
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toMatchObject({
+			success: true,
+			workflowId: 'created-wf',
+			warnings: [
+				'Workflow was saved, but planned task state update failed: loop storage unavailable',
+			],
+		});
+		expect(reportBuildOutcome).toHaveBeenCalled();
+		expect(onSavedWorkflowBuildOutcome).not.toHaveBeenCalled();
+		expect(markSucceeded).not.toHaveBeenCalled();
+	});
+
+	it('reports planned build success after the workflow save succeeds', async () => {
+		const markSucceeded = jest.fn().mockResolvedValue(undefined);
+		const reportBuildOutcome = jest.fn().mockResolvedValue({ type: 'done' });
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi-1',
+					title: 'Build workflow',
+					spec: 'Build it',
+					plannedTaskService: { markSucceeded },
+					workflowTaskService: { reportBuildOutcome },
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toMatchObject({ success: true, workflowId: 'created-wf' });
+		expect(ctx.workflowService.clearAiTemporary).not.toHaveBeenCalled();
+		expect(reportBuildOutcome).toHaveBeenCalled();
+		expect(markSucceeded).toHaveBeenCalled();
 	});
 
 	it('does not apply the same patch twice when approval resumes', async () => {

@@ -15,9 +15,6 @@ export const PLANNED_TASK_PERMISSION_OVERRIDES: Partial<
 	Record<PlannedTaskKind, Partial<InstanceAiPermissions>>
 > = {
 	'build-workflow': {
-		createWorkflow: 'always_allow',
-		updateWorkflow: 'always_allow',
-		runWorkflow: 'always_allow',
 		createDataTable: 'always_allow',
 		mutateDataTableSchema: 'always_allow',
 		mutateDataTableRows: 'always_allow',

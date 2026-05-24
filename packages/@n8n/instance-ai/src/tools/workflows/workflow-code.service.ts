@@ -26,6 +26,8 @@ const patchSchema = z.object({
 	new_str: z.string().describe('Replacement string'),
 });
 
+const WORKFLOW_BUILDER_SKILL_ID = 'workflow-builder';
+
 // Coerce JSON-stringified arrays into arrays. The model sometimes sends `patches`
 // as a JSON string because the payload contains escaped code. Leave non-strings
 // untouched so Zod can validate them normally.
@@ -63,6 +65,12 @@ export const workflowCodeCreateActionSchema = workflowCodeActionBaseSchema
 				'Create a workflow from TypeScript SDK code. Use after loading the workflow-builder skill.',
 			),
 		workflowId: z.undefined().optional(),
+		temporary: z
+			.boolean()
+			.optional()
+			.describe(
+				'Set true only for scratch/intermediate workflows that should be archived automatically. Omit for user-visible deliverables.',
+			),
 	})
 	.strict();
 
@@ -169,7 +177,37 @@ function blockSaveIfNeeded(
 	return undefined;
 }
 
+function blockIfWorkflowBuilderSkillMissing(
+	context: InstanceAiContext,
+): { success: false; errors: string[] } | undefined {
+	if (!context.loadedSkills) return undefined;
+	if (context.loadedSkills.has(WORKFLOW_BUILDER_SKILL_ID)) return undefined;
+
+	return {
+		success: false,
+		errors: [
+			'Load the workflow-builder skill with load_skill before calling workflows(action="create"|"update").',
+		],
+	};
+}
+
 function isSaveAlwaysAllowed(context: InstanceAiContext, input: WorkflowCodeActionInput): boolean {
+	if (context.plannedBuildTask) {
+		if (input.action === 'create') {
+			return (
+				context.permissions?.createWorkflow === 'always_allow' &&
+				context.plannedBuildTask.workflowId === undefined
+			);
+		}
+
+		if (context.permissions?.updateWorkflow !== 'always_allow') return false;
+		const allowList = context.allowedUpdateWorkflowIds;
+		return (
+			context.plannedBuildTask.workflowId === input.workflowId &&
+			allowList?.has(input.workflowId) === true
+		);
+	}
+
 	if (input.action === 'create') {
 		return context.permissions?.createWorkflow === 'always_allow';
 	}
@@ -373,8 +411,8 @@ async function reportPlannedBuildSuccess({
 		verificationReadiness: determineDirectVerificationReadiness(outcomeWithoutRouting),
 		setupRequirement: determineDirectSetupRequirement(outcomeWithoutRouting),
 	};
-
 	await plannedBuildTask.workflowTaskService?.reportBuildOutcome(outcome);
+	plannedBuildTask.onSavedWorkflowBuildOutcome?.({ result: summary, outcome });
 	await plannedBuildTask.plannedTaskService.markSucceeded(
 		plannedBuildTask.threadId,
 		plannedBuildTask.taskId,
@@ -393,23 +431,6 @@ async function reportPlannedBuildSuccessSafely(
 		return undefined;
 	} catch (error) {
 		input.context.logger?.warn?.('Failed to report planned build success', {
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return error instanceof Error ? error.message : String(error);
-	}
-}
-
-async function promoteCreatedWorkflowSafely(
-	context: InstanceAiContext,
-	workflowId: string,
-): Promise<string | undefined> {
-	try {
-		await context.workflowService.clearAiTemporary(workflowId);
-		context.aiCreatedWorkflowIds?.delete(workflowId);
-		return undefined;
-	} catch (error) {
-		context.logger?.warn?.('Failed to promote AI-created workflow', {
-			workflowId,
 			error: error instanceof Error ? error.message : String(error),
 		});
 		return error instanceof Error ? error.message : String(error);
@@ -435,7 +456,7 @@ function buildWorkflowSaveMetadata({
 	const hasVerificationPinData = Object.keys(mockResult.verificationPinData).length > 0;
 	const outcomeWithoutRouting: Omit<
 		WorkflowBuildOutcome,
-		'workItemId' | 'summary' | 'verificationReadiness' | 'setupRequirement'
+		'workItemId' | 'taskId' | 'summary' | 'verificationReadiness' | 'setupRequirement'
 	> = {
 		workflowId,
 		submitted: true,
@@ -481,6 +502,20 @@ function buildWorkflowSaveMetadata({
 	};
 }
 
+function buildSaveWarnings(
+	informational: ReturnType<typeof partitionWarnings>['informational'],
+	plannedReportError?: string,
+): string[] | undefined {
+	const warnings = informational.map((w) => `[${w.code}]: ${w.message}`);
+	if (plannedReportError) {
+		warnings.push(
+			`Workflow was saved, but planned task state update failed: ${plannedReportError}`,
+		);
+	}
+
+	return warnings.length > 0 ? warnings : undefined;
+}
+
 export function createWorkflowCodeService(context: InstanceAiContext) {
 	// Keep code per workflow so patch-mode never crosses workflow boundaries.
 	const lastCodeByWorkflowId = new Map<string, string>();
@@ -509,6 +544,8 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 	async function saveWorkflowCode(input: WorkflowCodeActionInput, ctx: WorkflowCodeToolContext) {
 		const blocked = blockSaveIfNeeded(context, input);
 		if (blocked) return blocked;
+		const missingSkill = blockIfWorkflowBuilderSkillMissing(context);
+		if (missingSkill) return missingSkill;
 
 		const { code, patches, projectId, name } = input;
 		const workflowId = getWorkflowId(input);
@@ -649,33 +686,31 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					workflowName: json.name,
 					...saveMetadata,
 				});
-				if (plannedReportError) {
-					return {
-						success: false,
-						workflowId: updated.id,
-						workflowName: json.name,
-						errors: [
-							`Workflow was saved, but failed to update planned task state: ${plannedReportError}`,
-						],
-					};
-				}
 				return {
 					success: true,
 					workflowId: updated.id,
 					workflowName: json.name,
 					...saveMetadata,
-					warnings:
-						informational.length > 0
-							? informational.map((w) => `[${w.code}]: ${w.message}`)
-							: undefined,
+					warnings: buildSaveWarnings(informational, plannedReportError),
 				};
 			} else {
+				const markAsAiTemporary = input.action === 'create' && input.temporary === true;
+				if (markAsAiTemporary && context.plannedBuildTask) {
+					return {
+						success: false,
+						errors: [
+							'Do not set temporary: true for planned build tasks. Omit temporary for final planned workflow deliverables.',
+						],
+					};
+				}
 				const created = await context.workflowService.createFromWorkflowJSON(json, {
 					...(projectId ? { projectId } : {}),
-					markAsAiTemporary: true,
+					...(markAsAiTemporary ? { markAsAiTemporary: true } : {}),
 				});
-				const createdWorkflowIds = (context.aiCreatedWorkflowIds ??= new Set<string>());
-				createdWorkflowIds.add(created.id);
+				if (markAsAiTemporary) {
+					const createdWorkflowIds = (context.aiCreatedWorkflowIds ??= new Set<string>());
+					createdWorkflowIds.add(created.id);
+				}
 				const saveMetadata = buildWorkflowSaveMetadata({
 					workflowId: created.id,
 					triggerNodes,
@@ -683,43 +718,30 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					referencedWorkflowIds,
 					hasUnresolvedPlaceholders: hasPlaceholders,
 				});
+				if (markAsAiTemporary) {
+					rememberCode(created.id, finalCode);
+					return {
+						success: true,
+						workflowId: created.id,
+						workflowName: json.name,
+						temporary: true,
+						...saveMetadata,
+						warnings: buildSaveWarnings(informational),
+					};
+				}
 				const plannedReportError = await reportPlannedBuildSuccessSafely({
 					context,
 					workflowId: created.id,
 					workflowName: json.name,
 					...saveMetadata,
 				});
-				if (plannedReportError) {
-					return {
-						success: false,
-						workflowId: created.id,
-						workflowName: json.name,
-						errors: [
-							`Workflow was saved, but failed to update planned task state: ${plannedReportError}`,
-						],
-					};
-				}
-				const promotionError = await promoteCreatedWorkflowSafely(context, created.id);
-				if (promotionError) {
-					return {
-						success: false,
-						workflowId: created.id,
-						workflowName: json.name,
-						errors: [
-							`Workflow was saved, but failed to finalize temporary state: ${promotionError}`,
-						],
-					};
-				}
 				rememberCode(created.id, finalCode);
 				return {
 					success: true,
 					workflowId: created.id,
 					workflowName: json.name,
 					...saveMetadata,
-					warnings:
-						informational.length > 0
-							? informational.map((w) => `[${w.code}]: ${w.message}`)
-							: undefined,
+					warnings: buildSaveWarnings(informational, plannedReportError),
 				};
 			}
 		} catch (error) {

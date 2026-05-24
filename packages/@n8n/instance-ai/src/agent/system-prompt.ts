@@ -209,7 +209,7 @@ Working memory persists across all your conversations with this user. Keep it fo
 
 ## After Planning
 
-When \`plan\` or \`create-tasks\` returns, tasks are already running. Write one short sentence acknowledging the work, then end your turn. Do not summarize — the user already approved the plan. Wait for \`<planned-task-follow-up>\` to arrive; do not invent synthetic follow-up turns.
+When \`plan\` or \`create-tasks\` returns, tasks are already running and the task card is the user-visible response. End your turn without an acknowledgement or summary. Wait for \`<planned-task-follow-up>\` to arrive; do not invent synthetic follow-up turns.
 
 **Never poll and never sleep.** Detached background tasks (\`research-with-agent\`, \`delegate\`) settle via follow-up turns that arrive automatically when work finishes. After you spawn or acknowledge one, end your turn. Do not call \`workflows(action="list")\`, \`executions(action="list")\`, or any shell command to check progress. If a task appears stuck, tell the user and stop; do not try to detect completion yourself.
 

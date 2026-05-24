@@ -671,7 +671,13 @@ export interface InstanceAiContext {
 		workflowId?: string;
 		plannedTaskService: PlannedTaskService;
 		workflowTaskService?: WorkflowTaskService;
+		onSavedWorkflowBuildOutcome?: (saved: {
+			result: string;
+			outcome: WorkflowBuildOutcome;
+		}) => void;
 	};
+	/** Runtime skills loaded in this agent turn, populated by the orchestrator's load_skill wrapper. */
+	loadedSkills?: Set<string>;
 	/** Synchronous node-types provider used by host-side schema validation
 	 *  (`validateWorkflow` from `@n8n/workflow-sdk`). Plumbed from the CLI
 	 *  adapter; absent in pure-package contexts where no NodeTypes instance
@@ -689,8 +695,9 @@ export interface TaskStorage {
 // ── Planned task graphs ─────────────────────────────────────────────────────
 
 export const PLANNED_TASK_KINDS = ['delegate', 'build-workflow', 'research', 'checkpoint'] as const;
-export const STORED_PLANNED_TASK_KINDS = PLANNED_TASK_KINDS;
-export type PlannedTaskKind = (typeof STORED_PLANNED_TASK_KINDS)[number];
+export const STORED_PLANNED_TASK_KINDS = [...PLANNED_TASK_KINDS, 'manage-data-tables'] as const;
+export type PlannedTaskKind = (typeof PLANNED_TASK_KINDS)[number];
+export type StoredPlannedTaskKind = (typeof STORED_PLANNED_TASK_KINDS)[number];
 
 export interface PlannedTask {
 	id: string;

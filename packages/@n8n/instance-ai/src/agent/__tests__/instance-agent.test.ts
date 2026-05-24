@@ -1,3 +1,5 @@
+import type { RuntimeSkillSource } from '@n8n/agents';
+
 const mockAgentInstances: Array<{
 	model: jest.Mock;
 	instructions: jest.Mock;
@@ -304,6 +306,68 @@ describe('createInstanceAgent', () => {
 		} as never);
 
 		expect(mockAgentInstances[0]?.skills).toHaveBeenCalledWith(runtimeSkills);
+	});
+
+	it('tracks when the orchestrator loads the workflow-builder skill', async () => {
+		const loadedSkills = new Set<string>();
+		const runtimeSkills = {
+			registry: {
+				schemaVersion: 1,
+				skillsHash: 'skills-hash',
+				skills: [
+					{
+						id: 'workflow-builder',
+						name: 'workflow-builder',
+						description: 'Build workflows.',
+						hash: 'skill-hash',
+						linkedFiles: {
+							references: [],
+							templates: [],
+							scripts: [],
+							assets: [],
+							examples: [],
+							other: [],
+						},
+					},
+				],
+			},
+			loadSkill: jest.fn(
+				async (skillId: string) =>
+					await Promise.resolve({
+						id: skillId,
+						name: 'workflow-builder',
+						description: 'Build workflows.',
+						instructions: 'Build workflows.',
+					}),
+			),
+		};
+
+		await createInstanceAgent({
+			modelId: 'test-model',
+			context: {
+				runLabel: 'skills-test',
+				localGatewayStatus: undefined,
+				licenseHints: undefined,
+				localMcpServer: undefined,
+				loadedSkills,
+			},
+			orchestrationContext: {
+				runId: 'skills-test',
+				browserMcpConfig: undefined,
+				runtimeSkills,
+			},
+			memoryConfig: { lastMessages: 20 },
+			mcpManager: createMcpManagerStub(),
+		} as never);
+
+		const skillsCalls = (mockAgentInstances[0]?.skills.mock.calls ?? []) as unknown as Array<
+			[RuntimeSkillSource]
+		>;
+		const trackedRuntimeSkills = skillsCalls[0]?.[0];
+		if (!trackedRuntimeSkills) throw new Error('Expected runtime skills to be attached');
+		await trackedRuntimeSkills.loadSkill('workflow-builder');
+
+		expect(loadedSkills.has('workflow-builder')).toBe(true);
 	});
 
 	it('exposes browser_connect and browser_navigate from localMcpServer in the agent toolset', async () => {

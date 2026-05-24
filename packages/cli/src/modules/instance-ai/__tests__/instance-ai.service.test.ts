@@ -150,6 +150,7 @@ import {
 	type SpawnBackgroundTaskResult,
 	type SpawnManagedBackgroundTaskOptions,
 	type TerminalOutcome,
+	type WorkflowBuildOutcome,
 } from '@n8n/instance-ai';
 
 import { InstanceAiService } from '../instance-ai.service';
@@ -2110,8 +2111,63 @@ describe('InstanceAiService — terminal response guard wiring', () => {
 			fakeUser,
 			'thread-a',
 			'build-1',
+			undefined,
 		);
 		expect(service.schedulePlannedTasks).not.toHaveBeenCalled();
+	});
+
+	it('recovers a planned build follow-up when the workflow was saved but task reporting missed', async () => {
+		const recoveredSuccess = {
+			result: 'Workflow built: Lead intake.',
+			outcome: {
+				workItemId: 'wi-1',
+				taskId: 'build-1',
+				workflowId: 'wf-1',
+				submitted: true,
+				triggerType: 'manual_or_testable',
+				needsUserInput: false,
+				summary: 'Workflow built: Lead intake.',
+				verificationReadiness: { status: 'ready' },
+				setupRequirement: { status: 'not_required' },
+			} as WorkflowBuildOutcome,
+		};
+		const plannedTaskService = {
+			getGraph: jest
+				.fn()
+				.mockResolvedValueOnce({ tasks: [{ id: 'build-1', status: 'running' }] })
+				.mockResolvedValueOnce({ tasks: [{ id: 'build-1', status: 'succeeded' }] }),
+			markSucceeded: jest.fn().mockResolvedValue({ tasks: [] }),
+			markFailed: jest.fn(),
+		};
+		const service = Object.create(InstanceAiService.prototype) as unknown as {
+			finalizePlannedBuildFollowUp: (
+				user: User,
+				threadId: string,
+				buildTaskId: string,
+				recovered?: typeof recoveredSuccess,
+			) => Promise<void>;
+			createPlannedTaskState: jest.Mock;
+			syncPlannedTasksToUi: jest.Mock;
+			schedulePlannedTasks: jest.Mock;
+			logger: { warn: jest.Mock; error: jest.Mock };
+		};
+		service.createPlannedTaskState = jest.fn(async () => ({ plannedTaskService }));
+		service.syncPlannedTasksToUi = jest.fn();
+		service.schedulePlannedTasks = jest.fn();
+		service.logger = { warn: jest.fn(), error: jest.fn() };
+
+		await service.finalizePlannedBuildFollowUp(fakeUser, 'thread-a', 'build-1', recoveredSuccess);
+
+		expect(plannedTaskService.markSucceeded).toHaveBeenCalledWith(
+			'thread-a',
+			'build-1',
+			recoveredSuccess,
+		);
+		expect(plannedTaskService.markFailed).not.toHaveBeenCalled();
+		expect(service.syncPlannedTasksToUi).toHaveBeenCalledWith('thread-a', {
+			tasks: [{ id: 'build-1', status: 'succeeded' }],
+		});
+		expect(service.schedulePlannedTasks).toHaveBeenCalledWith(fakeUser, 'thread-a');
 	});
 
 	it('rebinds resumed agents to resume trace telemetry', async () => {
