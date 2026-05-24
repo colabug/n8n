@@ -4,7 +4,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne, type Relation } from '@n8
 import { Agent } from './agent.entity';
 
 @Entity({ name: 'agent_files' })
-@Index(['agentId'])
+@Index(['agentId', 'createdAt'])
 export class AgentFile extends WithTimestampsAndStringId {
 	@ManyToOne(() => Agent, { onDelete: 'CASCADE' })
 	@JoinColumn({ name: 'agentId' })

@@ -415,7 +415,8 @@ export class AgentsController {
 			if (error instanceof multer.MulterError) {
 				throw new BadRequestError(`File upload error: ${error.message}`);
 			}
-			throw error instanceof BadRequestError ? error : new BadRequestError('File upload failed');
+			if (error instanceof BadRequestError) throw error;
+			throw error;
 		}
 
 		const files = req.files ?? [];

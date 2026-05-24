@@ -6,6 +6,7 @@ import path from 'node:path';
 import { BadRequestError } from '@/errors/response-errors/bad-request.error';
 
 export const ALLOWED_AGENT_FILE_EXTENSIONS = ['.csv', '.md', '.markdown', '.pdf', '.txt'] as const;
+export const MAX_AGENT_FILES_PER_UPLOAD = 10;
 export const MAX_AGENT_FILE_SIZE_MB = 50;
 export const MAX_AGENT_FILE_SIZE_BYTES = MAX_AGENT_FILE_SIZE_MB * 1024 * 1024;
 
@@ -34,7 +35,7 @@ export class AgentUploadMiddleware {
 
 	array(fieldName: string): RequestHandler {
 		return (req, res, next) => {
-			void this.upload.array(fieldName)(req, res, (error) => {
+			void this.upload.array(fieldName, MAX_AGENT_FILES_PER_UPLOAD)(req, res, (error) => {
 				if (error) {
 					(req as typeof req & { fileUploadError?: Error }).fileUploadError = error as Error;
 				}

@@ -560,6 +560,7 @@ export class AgentsService {
 			return false;
 		}
 
+		await this.agentKnowledgeService.deleteAllFilesForAgent(agentId);
 		await this.agentRepository.remove(agent);
 
 		this.clearRuntimes(agentId);

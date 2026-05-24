@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const COMMAND_TIMEOUT_MS = 5_000;
-export const AGENT_KNOWLEDGE_COMMANDS = ['git_grep', 'find', 'cat', 'sed', 'awk', 'xargs'] as const;
+export const AGENT_KNOWLEDGE_COMMANDS = ['git_grep', 'find', 'cat', 'sed', 'awk'] as const;
 
 export type AgentKnowledgeCommand = (typeof AGENT_KNOWLEDGE_COMMANDS)[number];
 
@@ -39,11 +39,6 @@ export type AgentKnowledgeCommandRequest =
 			file: string;
 			fieldSeparator?: string;
 			printFields: number[];
-	  }
-	| {
-			command: 'xargs';
-			commandName: 'cat';
-			files: string[];
 	  };
 
 export interface AgentKnowledgeCommandResult {
@@ -131,16 +126,6 @@ export class AgentKnowledgeCommandService {
 				if (request.fieldSeparator) args.push('-F', request.fieldSeparator);
 				args.push(program, path.relative(root, file));
 				return { executable: 'awk', args };
-			}
-			case 'xargs': {
-				const files = await Promise.all(
-					request.files.map(async (file) => await this.safePath(root, file)),
-				);
-				return {
-					executable: 'xargs',
-					args: ['cat'],
-					stdin: `${files.map((file) => path.relative(root, file)).join('\n')}\n`,
-				};
 			}
 		}
 	}

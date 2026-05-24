@@ -22,12 +22,18 @@ export interface KnowledgeWorkspaceFile {
 	searchable: boolean;
 }
 
+interface MaterializeWorkspaceOptions {
+	fileReferences?: string[];
+}
+
 interface StoredFileContent {
 	buffer: Buffer;
 	mimeType: string;
 	fileName: string;
 	fileExtension: string | undefined;
 }
+
+const MAX_AGENT_FILE_METADATA_LENGTH = 255;
 
 @Service()
 export class AgentKnowledgeService {
@@ -60,6 +66,13 @@ export class AgentKnowledgeService {
 		return files.map((file) => this.toDto(file));
 	}
 
+	async listWorkspaceFiles(agentId: string, projectId: string) {
+		await this.ensureAgentBelongsToProject(agentId, projectId);
+
+		const files = await this.agentFileRepository.findByAgentId(agentId);
+		return files.map((file) => this.toWorkspaceFile(file));
+	}
+
 	async deleteFile(agentId: string, projectId: string, fileId: string): Promise<void> {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
 
@@ -68,15 +81,31 @@ export class AgentKnowledgeService {
 			throw new NotFoundError(`Agent file "${fileId}" not found`);
 		}
 
-		await this.agentFileRepository.delete({ id: fileId, agentId });
 		await this.binaryDataService.deleteManyByBinaryDataId([file.binaryDataId]);
+		await this.agentFileRepository.delete({ id: fileId, agentId });
 	}
 
-	async materializeWorkspace(agentId: string, projectId: string, workspaceRoot: string) {
+	async deleteAllFilesForAgent(agentId: string): Promise<void> {
+		const files = await this.agentFileRepository.findByAgentId(agentId);
+		if (files.length === 0) return;
+
+		await this.binaryDataService.deleteManyByBinaryDataId(files.map((file) => file.binaryDataId));
+		await this.agentFileRepository.delete({ agentId });
+	}
+
+	async materializeWorkspace(
+		agentId: string,
+		projectId: string,
+		workspaceRoot: string,
+		options: MaterializeWorkspaceOptions = {},
+	) {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
 		await mkdir(workspaceRoot, { recursive: true });
 
-		const files = await this.agentFileRepository.findByAgentId(agentId);
+		const files = this.filterFilesForWorkspace(
+			await this.agentFileRepository.findByAgentId(agentId),
+			options.fileReferences,
+		);
 		const materializedFiles: KnowledgeWorkspaceFile[] = [];
 
 		for (const file of files) {
@@ -93,14 +122,7 @@ export class AgentKnowledgeService {
 				await writeFile(targetPath, buffer);
 			}
 
-			materializedFiles.push({
-				id: file.id,
-				fileName: file.fileName,
-				mimeType: file.mimeType,
-				fileSizeBytes: file.fileSizeBytes,
-				relativePath,
-				searchable,
-			});
+			materializedFiles.push(this.toWorkspaceFile(file));
 		}
 
 		return materializedFiles;
@@ -116,9 +138,14 @@ export class AgentKnowledgeService {
 	private async storeFile(agentId: string, file: Express.Multer.File): Promise<AgentFile> {
 		try {
 			const fileId = generateNanoId();
-			const fileName = sanitizeFilename(Buffer.from(file.originalname, 'latin1').toString('utf8'));
+			const fileName = sanitizeFilename(
+				Buffer.from(file.originalname, 'latin1').toString('utf8'),
+				MAX_AGENT_FILE_METADATA_LENGTH + 1,
+			);
+			this.validateMetadataLength('File name', fileName);
 			const buffer = file.buffer ?? (await readFile(file.path));
 			const storedContent = await this.prepareStoredContent(fileName, file.mimetype, buffer);
+			this.validateMetadataLength('MIME type', storedContent.mimeType);
 			const binaryData: IBinaryData = {
 				data: '',
 				mimeType: storedContent.mimeType,
@@ -169,6 +196,26 @@ export class AgentKnowledgeService {
 			fileSizeBytes: file.fileSizeBytes,
 			createdAt: file.createdAt.toISOString(),
 		};
+	}
+
+	private toWorkspaceFile(file: AgentFile): KnowledgeWorkspaceFile {
+		return {
+			id: file.id,
+			fileName: file.fileName,
+			mimeType: file.mimeType,
+			fileSizeBytes: file.fileSizeBytes,
+			relativePath: this.getWorkspaceRelativePath(file),
+			searchable: this.isSearchable(file),
+		};
+	}
+
+	private filterFilesForWorkspace(files: AgentFile[], fileReferences: string[] | undefined) {
+		if (!fileReferences) return files;
+
+		const requested = new Set(fileReferences);
+		return files.filter(
+			(file) => requested.has(file.id) || requested.has(this.getWorkspaceRelativePath(file)),
+		);
 	}
 
 	private isSearchable(file: AgentFile) {
@@ -240,5 +287,13 @@ export class AgentKnowledgeService {
 		} finally {
 			await parser.destroy();
 		}
+	}
+
+	private validateMetadataLength(label: string, value: string) {
+		if (value.length <= MAX_AGENT_FILE_METADATA_LENGTH) return;
+
+		throw new BadRequestError(
+			`${label} must be ${MAX_AGENT_FILE_METADATA_LENGTH} characters or less`,
+		);
 	}
 }

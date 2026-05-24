@@ -1,6 +1,7 @@
 import { ControllerRegistryMetadata } from '@n8n/decorators';
 import { Container } from '@n8n/di';
 import { mock } from 'jest-mock-extended';
+import multer from 'multer';
 
 import type { CredentialsService } from '@/credentials/credentials.service';
 import { BadRequestError } from '@/errors/response-errors/bad-request.error';
@@ -160,6 +161,37 @@ describe('AgentsController file uploads', () => {
 				'agent-1',
 			),
 		).rejects.toThrow(BadRequestError);
+	});
+
+	it('maps multer upload validation errors to bad requests', async () => {
+		const { controller } = makeController();
+
+		await expect(
+			controller.uploadFiles(
+				{
+					params: { projectId: 'project-1' },
+					fileUploadError: new multer.MulterError('LIMIT_FILE_COUNT'),
+				} as never,
+				undefined as never,
+				'agent-1',
+			),
+		).rejects.toThrow(BadRequestError);
+	});
+
+	it('rethrows unexpected upload errors', async () => {
+		const { controller } = makeController();
+		const uploadError = new Error('disk unavailable');
+
+		await expect(
+			controller.uploadFiles(
+				{
+					params: { projectId: 'project-1' },
+					fileUploadError: uploadError,
+				} as never,
+				undefined as never,
+				'agent-1',
+			),
+		).rejects.toBe(uploadError);
 	});
 
 	it('delegates valid uploads with the project and agent IDs', async () => {

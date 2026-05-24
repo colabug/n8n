@@ -637,6 +637,9 @@ async function initialize() {
 	localConfig.value = null;
 	connectedTriggers.value = [];
 	agentFiles.value = [];
+	agentFilesLoading.value = false;
+	agentFilesUploading.value = false;
+	deletingAgentFileId.value = null;
 
 	// Refresh builder readiness so the empty-state CTA reflects the latest
 	// admin configuration. Never blocks the rest of the load.

@@ -24,7 +24,7 @@ export class CreateAgentFilesTable1784000000011 implements ReversibleMigration {
 				column('mimeType').varchar(255).notNull,
 				column('fileSizeBytes').int.notNull.comment('Uploaded file size in bytes'),
 			)
-			.withIndexOn('agentId')
+			.withIndexOn(['agentId', 'createdAt'])
 			.withForeignKey('agentId', {
 				tableName: 'agents',
 				columnName: 'id',
