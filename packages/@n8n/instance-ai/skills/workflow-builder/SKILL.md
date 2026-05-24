@@ -2,8 +2,9 @@
 name: workflow-builder
 description: >-
   Builds and edits n8n workflows directly with the workflow SDK and the
-  workflows tool. Use for workflow creation, workflow edits, fixes, node
-  rewiring, credential-preserving patches, verification, and setup routing.
+  workflows tool. Use for existing-workflow edits, fixes, node rewiring,
+  credential-preserving patches, verification, setup routing, and workflow
+  creation only inside approved planned build follow-up turns.
 recommended_tools:
   - workflows
   - verify-built-workflow
@@ -19,16 +20,21 @@ platforms:
 
 # Workflow Builder
 
-Use this skill to build, patch, fix, and update n8n workflows in the current
-main-agent turn. Do not delegate workflow-building work or call legacy
-workflow-building tools. Workflow building is direct tool use:
-discover context, write SDK code, call `workflows(action="create"|"update")`,
-patch errors, and finish with a concise result.
+Use this skill to patch, fix, verify, set up, and update existing n8n workflows
+in normal user-facing turns. Use it for new workflow creation only when the
+current input is an approved `<planned-task-follow-up type="build-workflow">`.
+For a normal user request to build a brand-new workflow, do not load this skill
+first; call `plan` so the planned-task scheduler can create the build and
+checkpoint follow-ups. Do not delegate workflow-building work or call legacy
+workflow-building tools.
 
 ## Default Procedure
 
-1. Classify the request: new workflow, edit existing workflow, patch after an
-   error, credential/resource setup, or verification follow-up.
+1. Classify the request: planned new-workflow build follow-up, edit existing
+   workflow, patch after an error, credential/resource setup, or verification
+   follow-up. If this is a normal user-facing new workflow request without a
+   `<planned-task-follow-up type="build-workflow">`, stop using this skill and
+   call `plan`.
 2. Inspect existing state before editing. Use `workflows(action="get-as-code")`
    when a `workflowId` is available and patches need exact source strings.
 3. Discover node schemas before configuring nodes. Use
@@ -40,7 +46,7 @@ patch errors, and finish with a concise result.
    user-selected credentials. If one matching credential exists, wire it. If
    multiple matching credentials exist and the user did not name one, ask once.
 5. Generate TypeScript SDK code using `@n8n/workflow-sdk`, then call
-   `workflows(action="create")` for new workflows or
+   `workflows(action="create")` only for approved planned build follow-ups or
    `workflows(action="update", workflowId, ...)` for existing workflows. For
    small fixes, prefer `patches` over resending the full workflow code.
    Only set `temporary: true` on `workflows(action="create")` for scratch or

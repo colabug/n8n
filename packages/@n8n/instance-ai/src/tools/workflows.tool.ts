@@ -270,6 +270,10 @@ const WORKFLOW_ACTION_LABELS = {
 	'update-version': 'update version metadata',
 } satisfies Record<WorkflowAction, string>;
 
+const DEFAULT_ORCHESTRATOR_WORKFLOW_ACTIONS = WORKFLOW_ACTION_ORDER.filter(
+	(action) => action !== 'create',
+);
+
 function normalizeOptions(options: WorkflowsToolOptionsInput = {}): WorkflowsToolOptions {
 	return typeof options === 'string' ? { surface: options } : options;
 }
@@ -310,7 +314,11 @@ function getWorkflowActions(
 	supportedSchemas: Partial<Record<WorkflowAction, WorkflowActionSchema>>,
 	options: WorkflowsToolOptions,
 ): WorkflowAction[] {
-	const allowedActions = new Set(options.allowedActions ?? WORKFLOW_ACTION_ORDER);
+	const defaultActions =
+		options.surface === 'orchestrator'
+			? DEFAULT_ORCHESTRATOR_WORKFLOW_ACTIONS
+			: WORKFLOW_ACTION_ORDER;
+	const allowedActions = new Set(options.allowedActions ?? defaultActions);
 	return WORKFLOW_ACTION_ORDER.filter(
 		(action) => supportedSchemas[action] !== undefined && allowedActions.has(action),
 	);

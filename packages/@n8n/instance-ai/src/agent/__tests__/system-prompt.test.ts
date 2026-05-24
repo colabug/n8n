@@ -123,6 +123,10 @@ describe('getSystemPrompt', () => {
 
 			expect(prompt).toContain('## When to Plan');
 			expect(prompt).toMatch(/New workflow \(no `workflowId`\) or multi-workflow build/);
+			expect(prompt).toContain('Do not load `workflow-builder` first');
+			expect(prompt).toContain(
+				'creation is only available inside the approved `build-workflow` follow-up',
+			);
 			expect(prompt).toContain('workflow tasks include any data table names');
 		});
 
@@ -141,6 +145,9 @@ describe('getSystemPrompt', () => {
 			expect(prompt).toContain('load the `workflow-builder` skill');
 			expect(prompt).toContain('call `workflows(action="update")` directly');
 			expect(prompt).toContain('existing `workflowId`');
+			expect(prompt).toContain(
+				'Existing-workflow edits and approved planned build follow-ups are direct main-agent skill flows',
+			);
 		});
 
 		it('routes non-build ops through direct tools', () => {

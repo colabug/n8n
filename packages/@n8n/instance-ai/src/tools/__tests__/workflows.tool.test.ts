@@ -198,7 +198,7 @@ describe('workflows tool', () => {
 			expect(context.workflowService.publish).not.toHaveBeenCalled();
 		});
 
-		it('should let the orchestrator inspect SDK code and use builder-backed writes but not update raw workflow JSON', () => {
+		it('should let the orchestrator inspect SDK code and update existing workflows without direct creation', () => {
 			const context = createMockContext();
 			const tool = createWorkflowsTool(context, 'orchestrator');
 			const schema = getInputSchema(tool);
@@ -207,7 +207,7 @@ describe('workflows tool', () => {
 			expect(
 				schema.safeParse({ action: 'create', name: 'Test WF', code: 'export default workflow()' })
 					.success,
-			).toBe(true);
+			).toBe(false);
 			expect(
 				schema.safeParse({
 					action: 'update',
@@ -224,7 +224,29 @@ describe('workflows tool', () => {
 			).toBe(false);
 			expect(getDescription(tool)).toContain('convert existing workflows to TypeScript SDK code');
 			expect(getDescription(tool)).toContain('update from workflow SDK code or patches');
+			expect(getDescription(tool)).not.toContain('create from workflow SDK code');
 			expect(getDescription(tool)).not.toContain('save a modified WorkflowJSON');
+		});
+
+		it('should allow planned build follow-ups to create workflows on the orchestrator surface', () => {
+			const context = createMockContext();
+			const tool = createWorkflowsTool(context, {
+				surface: 'orchestrator',
+				allowedActions: builderWorkflowActions,
+			});
+			const schema = getInputSchema(tool);
+
+			expect(
+				schema.safeParse({ action: 'create', name: 'Test WF', code: 'export default workflow()' })
+					.success,
+			).toBe(true);
+			expect(
+				schema.safeParse({
+					action: 'update',
+					workflowId: 'w1',
+					patches: [{ old_str: 'old', new_str: 'new' }],
+				}).success,
+			).toBe(true);
 		});
 	});
 

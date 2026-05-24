@@ -55,7 +55,7 @@ describe('Instance AI runtime skills', () => {
 		expect(workflowBuilder).toMatchObject({
 			name: 'workflow-builder',
 			description:
-				'Builds and edits n8n workflows directly with the workflow SDK and the workflows tool. Use for workflow creation, workflow edits, fixes, node rewiring, credential-preserving patches, verification, and setup routing.',
+				'Builds and edits n8n workflows directly with the workflow SDK and the workflows tool. Use for existing-workflow edits, fixes, node rewiring, credential-preserving patches, verification, setup routing, and workflow creation only inside approved planned build follow-up turns.',
 			platforms: ['daytona'],
 			recommendedTools: [
 				'workflows',
