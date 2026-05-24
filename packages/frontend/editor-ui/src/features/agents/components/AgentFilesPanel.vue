@@ -13,8 +13,6 @@ import {
 import { useI18n } from '@n8n/i18n';
 import type { AgentFileDto } from '@n8n/api-types';
 
-import AgentPanelHeader from './AgentPanelHeader.vue';
-
 const props = withDefaults(
 	defineProps<{
 		files: AgentFileDto[];
@@ -41,6 +39,26 @@ const fileInput = useTemplateRef<HTMLInputElement>('fileInput');
 const totalCount = computed(() => props.files.length);
 const isMutating = computed(() => props.uploading || props.deletingFileId !== null);
 const isUploadDisabled = computed(() => props.disabled || props.loading || isMutating.value);
+
+function getFileIcon(file: AgentFileDto) {
+	const extension = file.fileName.split('.').pop()?.toLowerCase();
+	if (extension === 'csv' || file.mimeType === 'text/csv') return 'file-code';
+	if (extension === 'pdf') return 'file';
+	if (extension === 'md' || extension === 'markdown' || file.mimeType === 'text/markdown') {
+		return 'scroll-text';
+	}
+	if (extension === 'txt' || file.mimeType === 'text/plain') return 'file-text';
+	return 'file';
+}
+
+function getFileType(fileName: string) {
+	const extension = fileName.split('.').pop()?.toLowerCase();
+	if (extension === 'csv') return 'CSV';
+	if (extension === 'pdf') return 'PDF';
+	if (extension === 'md' || extension === 'markdown') return 'Markdown';
+	if (extension === 'txt') return 'TXT';
+	return 'File';
+}
 
 function formatFileSize(bytes: number) {
 	if (bytes < 1024)
@@ -75,30 +93,28 @@ function onFilesSelected(event: Event) {
 
 <template>
 	<div :class="[$style.panel, props.disabled && $style.disabled]" data-testid="agent-files-panel">
-		<AgentPanelHeader
-			:class="$style.header"
-			:title="i18n.baseText('agents.builder.files.title')"
-			:description="
-				i18n.baseText('agents.builder.files.count', {
-					adjustToNumber: totalCount,
-					interpolate: { count: String(totalCount) },
-				})
-			"
-		>
-			<template #actions>
+		<div :class="$style.titleGroup">
+			<div :class="$style.header">
+				<N8nText tag="h3" :bold="true">
+					{{ i18n.baseText('agents.builder.files.title') }}
+				</N8nText>
 				<N8nTooltip :content="i18n.baseText('agents.builder.files.upload')" placement="top">
 					<N8nIconButton
 						icon="plus"
-						variant="solid"
+						variant="subtle"
 						size="small"
+						icon-size="medium"
 						:disabled="isUploadDisabled"
 						:aria-label="i18n.baseText('agents.builder.files.upload')"
 						data-testid="agent-files-upload"
 						@click="openFilePicker"
 					/>
 				</N8nTooltip>
-			</template>
-		</AgentPanelHeader>
+			</div>
+			<N8nText size="small" color="text-light">
+				{{ i18n.baseText('agents.builder.files.description') }}
+			</N8nText>
+		</div>
 
 		<input
 			ref="fileInput"
@@ -133,14 +149,14 @@ function onFilesSelected(event: Event) {
 					data-testid="agent-files-list-row"
 				>
 					<template #prepend>
-						<N8nIcon icon="file-text" :size="14" :class="$style.fileIcon" />
+						<N8nIcon :icon="getFileIcon(file)" size="medium" :class="$style.fileIcon" />
 					</template>
 
-					<N8nText size="small" color="text-dark" :class="$style.name">
+					<N8nText size="xsmall" color="text-dark" :bold="true" :class="$style.name">
 						{{ file.fileName }}
 					</N8nText>
-					<N8nText size="small" color="text-light" :class="$style.metadata">
-						{{ file.mimeType }} · {{ formatFileSize(file.fileSizeBytes) }}
+					<N8nText size="xsmall" color="text-light" :class="$style.metadata">
+						{{ getFileType(file.fileName) }} | {{ formatFileSize(file.fileSizeBytes) }}
 					</N8nText>
 
 					<template #append>
@@ -149,6 +165,7 @@ function onFilesSelected(event: Event) {
 								icon="trash-2"
 								variant="ghost"
 								size="mini"
+								icon-size="small"
 								:disabled="props.disabled || props.loading || isMutating"
 								:loading="props.deletingFileId === file.id"
 								:aria-label="i18n.baseText('agents.builder.files.delete')"
@@ -160,6 +177,15 @@ function onFilesSelected(event: Event) {
 				</N8nCard>
 			</div>
 		</N8nScrollArea>
+
+		<N8nText v-if="!props.loading" size="xsmall" color="text-light">
+			{{
+				i18n.baseText('agents.builder.files.count', {
+					adjustToNumber: totalCount,
+					interpolate: { count: String(totalCount) },
+				})
+			}}
+		</N8nText>
 	</div>
 </template>
 
@@ -176,6 +202,19 @@ function onFilesSelected(event: Event) {
 	opacity: 0.6;
 }
 
+.titleGroup {
+	display: flex;
+	flex-direction: column;
+	gap: var(--spacing--3xs);
+}
+
+.header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--spacing--sm);
+}
+
 .fileInput {
 	display: none;
 }
@@ -188,6 +227,11 @@ function onFilesSelected(event: Event) {
 	display: flex;
 	flex-direction: column;
 	gap: var(--spacing--2xs);
+	padding-right: var(--spacing--xs);
+}
+
+.rows {
+	scrollbar-gutter: stable;
 }
 
 .row {
@@ -200,19 +244,12 @@ function onFilesSelected(event: Event) {
 	color: var(--text-color--subtle);
 }
 
-.name {
-	font-weight: var(--font-weight--medium);
-	margin-bottom: var(--spacing--4xs);
-}
-
 .name,
 .metadata {
 	display: block;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: var(--font-size--xs);
-	line-height: var(--line-height--md);
 	max-width: 100%;
 }
 </style>

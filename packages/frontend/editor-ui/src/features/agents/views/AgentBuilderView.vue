@@ -54,6 +54,8 @@ const AGENT_CHAT_PANEL_MIN_WIDTH = 320;
 const AGENT_CHAT_PANEL_DEFAULT_WIDTH = 460;
 const AGENT_CHAT_PANEL_MAX_WIDTH = 720;
 const AGENT_EDITOR_MIN_WIDTH = 360;
+const MAX_AGENT_FILE_SIZE_MB = 50;
+const MAX_AGENT_FILE_SIZE_BYTES = MAX_AGENT_FILE_SIZE_MB * 1024 * 1024;
 
 const route = useRoute();
 const router = useRouter();
@@ -230,6 +232,19 @@ async function fetchAgentFiles(
 
 async function onUploadAgentFiles(files: File[]) {
 	if (files.length === 0) return;
+	const oversizedFiles = files.filter((file) => file.size > MAX_AGENT_FILE_SIZE_BYTES);
+	if (oversizedFiles.length > 0) {
+		showError(
+			new Error(
+				locale.baseText('agents.builder.files.uploadFileTooLarge.message', {
+					interpolate: { name: oversizedFiles[0].name, size: String(MAX_AGENT_FILE_SIZE_MB) },
+				}),
+			),
+			locale.baseText('agents.builder.files.uploadFileTooLarge.title'),
+		);
+	}
+	const filesWithinLimit = files.filter((file) => file.size <= MAX_AGENT_FILE_SIZE_BYTES);
+	if (filesWithinLimit.length === 0) return;
 
 	const targetProjectId = projectId.value;
 	const targetAgentId = agentId.value;
@@ -239,7 +254,7 @@ async function onUploadAgentFiles(files: File[]) {
 			rootStore.restApiContext,
 			targetProjectId,
 			targetAgentId,
-			files,
+			filesWithinLimit,
 		);
 		if (agentId.value !== targetAgentId || projectId.value !== targetProjectId) return;
 		const existingById = new Map(agentFiles.value.map((file) => [file.id, file]));
