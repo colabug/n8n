@@ -1,14 +1,14 @@
 import { isAllowedAgentFile } from '../agent-upload.middleware';
 
 describe('AgentUploadMiddleware', () => {
-	it.each(['notes.md', 'notes.markdown', 'document.pdf', 'plain.txt'])(
+	it.each(['data.csv', 'notes.md', 'notes.markdown', 'document.pdf', 'plain.txt'])(
 		'allows %s',
 		(originalname) => {
 			expect(isAllowedAgentFile({ originalname })).toBe(true);
 		},
 	);
 
-	it.each(['archive.zip', 'data.csv', 'image.png', 'script.js', 'document.pdf.exe', 'README'])(
+	it.each(['archive.zip', 'image.png', 'script.js', 'document.pdf.exe', 'README'])(
 		'rejects %s',
 		(originalname) => {
 			expect(isAllowedAgentFile({ originalname })).toBe(false);

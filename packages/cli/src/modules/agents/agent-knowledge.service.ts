@@ -174,8 +174,10 @@ export class AgentKnowledgeService {
 	private isSearchable(file: AgentFile) {
 		const extension = file.fileName.split('.').pop()?.toLowerCase();
 		return (
+			file.mimeType === 'text/csv' ||
 			file.mimeType === 'text/plain' ||
 			file.mimeType === 'text/markdown' ||
+			extension === 'csv' ||
 			extension === 'txt' ||
 			extension === 'md' ||
 			extension === 'markdown'

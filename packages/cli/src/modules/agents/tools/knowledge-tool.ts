@@ -1,6 +1,9 @@
 import { Tool } from '@n8n/agents/tool';
 import { z } from 'zod';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
+import type { JSONSchema7 } from 'json-schema';
 import type {
 	AgentKnowledgeCommandService,
 	AgentKnowledgeCommandRequest,
@@ -49,31 +52,286 @@ const commandRequestSchema = z.discriminatedUnion('command', [
 	}),
 ]);
 
-const searchKnowledgeInputSchema = z.object({
-	operation: z.enum(['list', 'search', 'read', 'command']),
-	query: z.string().min(1).optional(),
-	caseInsensitive: z.boolean().optional(),
-	fixedStrings: z.boolean().optional(),
-	context: z.number().int().min(0).max(5).optional(),
-	files: z.array(z.string()).max(10).optional(),
-	file: z.string().min(1).optional(),
-	lineRange: lineRangeSchema.optional(),
-	request: commandRequestSchema.optional(),
-});
+const csvFilterSchema = z.discriminatedUnion('op', [
+	z.object({
+		column: z.string().min(1),
+		op: z.literal('eq'),
+		value: z.string(),
+	}),
+	z.object({
+		column: z.string().min(1),
+		op: z.literal('in'),
+		value: z.array(z.string()).min(1).max(50),
+	}),
+	z.object({
+		column: z.string().min(1),
+		op: z.literal('contains'),
+		value: z.string(),
+	}),
+]);
 
-const listInputSchema = z.object({ operation: z.literal('list') });
-const searchInputSchema = searchKnowledgeInputSchema.extend({
-	operation: z.literal('search'),
-	query: z.string().min(1),
-});
-const readInputSchema = searchKnowledgeInputSchema.extend({
-	operation: z.literal('read'),
-	file: z.string().min(1),
-});
-const commandInputSchema = searchKnowledgeInputSchema.extend({
-	operation: z.literal('command'),
-	request: commandRequestSchema,
-});
+const listInputSchema = z.object({ operation: z.literal('list') }).strict();
+const searchInputSchema = z
+	.object({
+		operation: z.literal('search'),
+		query: z.string().min(1),
+		caseInsensitive: z.boolean().optional(),
+		fixedStrings: z.boolean().optional(),
+		context: z.number().int().min(0).max(5).optional(),
+		files: z.array(z.string()).max(10).optional(),
+	})
+	.strict();
+const readInputSchema = z
+	.object({
+		operation: z.literal('read'),
+		file: z.string().min(1),
+		lineRange: lineRangeSchema.optional(),
+	})
+	.strict();
+const commandInputSchema = z
+	.object({
+		operation: z.literal('command'),
+		request: commandRequestSchema,
+	})
+	.strict();
+const csvQueryInputSchema = z
+	.object({
+		operation: z.literal('csv_query'),
+		file: z.string().min(1),
+		select: z.array(z.string().min(1)).min(1).max(50),
+		where: z.array(csvFilterSchema).max(10).optional(),
+		limit: z.number().int().min(1).max(100).default(20),
+	})
+	.strict();
+
+const searchKnowledgeParsingSchema = z.discriminatedUnion('operation', [
+	listInputSchema,
+	searchInputSchema,
+	readInputSchema,
+	commandInputSchema,
+	csvQueryInputSchema,
+]);
+
+const searchKnowledgeInputSchema: JSONSchema7 = {
+	type: 'object',
+	description:
+		'Use exactly one operation shape. Do not include fields from other operations. Use csv_query for CSV row/column lookups.',
+	oneOf: [
+		{
+			type: 'object',
+			additionalProperties: false,
+			required: ['operation'],
+			properties: {
+				operation: {
+					const: 'list',
+					description:
+						'List uploaded knowledge files with their ids, names, paths, and MIME types.',
+				},
+			},
+		},
+		{
+			type: 'object',
+			additionalProperties: false,
+			required: ['operation', 'query'],
+			properties: {
+				operation: { const: 'search', description: 'Search text files using git grep.' },
+				query: { type: 'string', minLength: 1, description: 'Search pattern.' },
+				caseInsensitive: { type: 'boolean', description: 'Run case-insensitive search.' },
+				fixedStrings: {
+					type: 'boolean',
+					description: 'Treat query as a fixed string instead of a regex. Defaults to true.',
+				},
+				context: {
+					type: 'integer',
+					minimum: 0,
+					maximum: 5,
+					description: 'Number of surrounding context lines.',
+				},
+				files: {
+					type: 'array',
+					maxItems: 10,
+					items: { type: 'string' },
+					description: 'Optional file ids or relative paths to search.',
+				},
+			},
+		},
+		{
+			type: 'object',
+			additionalProperties: false,
+			required: ['operation', 'file'],
+			properties: {
+				operation: { const: 'read', description: 'Read a whole file or a line range.' },
+				file: { type: 'string', minLength: 1, description: 'File id or relative path.' },
+				lineRange: {
+					type: 'object',
+					additionalProperties: false,
+					required: ['start', 'end'],
+					properties: {
+						start: { type: 'integer', minimum: 1 },
+						end: { type: 'integer', minimum: 1 },
+					},
+				},
+			},
+		},
+		{
+			type: 'object',
+			additionalProperties: false,
+			required: ['operation', 'request'],
+			properties: {
+				operation: { const: 'command', description: 'Run an allowed low-level file command.' },
+				request: {
+					oneOf: [
+						{
+							type: 'object',
+							additionalProperties: false,
+							required: ['command', 'pattern'],
+							properties: {
+								command: { const: 'git_grep' },
+								pattern: { type: 'string', minLength: 1 },
+								caseInsensitive: { type: 'boolean' },
+								fixedStrings: { type: 'boolean' },
+								context: { type: 'integer', minimum: 0, maximum: 5 },
+								files: { type: 'array', maxItems: 10, items: { type: 'string' } },
+							},
+						},
+						{
+							type: 'object',
+							additionalProperties: false,
+							required: ['command'],
+							properties: {
+								command: { const: 'find' },
+								name: { type: 'string' },
+								maxDepth: { type: 'integer', minimum: 1, maximum: 5 },
+							},
+						},
+						{
+							type: 'object',
+							additionalProperties: false,
+							required: ['command', 'file'],
+							properties: {
+								command: { const: 'cat' },
+								file: { type: 'string', minLength: 1 },
+							},
+						},
+						{
+							type: 'object',
+							additionalProperties: false,
+							required: ['command', 'file', 'startLine', 'endLine'],
+							properties: {
+								command: { const: 'sed' },
+								file: { type: 'string', minLength: 1 },
+								startLine: { type: 'integer', minimum: 1 },
+								endLine: { type: 'integer', minimum: 1 },
+							},
+						},
+						{
+							type: 'object',
+							additionalProperties: false,
+							required: ['command', 'file', 'printFields'],
+							properties: {
+								command: { const: 'awk' },
+								file: { type: 'string', minLength: 1 },
+								fieldSeparator: { type: 'string', minLength: 1, maxLength: 4 },
+								printFields: {
+									type: 'array',
+									minItems: 1,
+									maxItems: 10,
+									items: { type: 'integer', minimum: 1, maximum: 50 },
+								},
+							},
+						},
+						{
+							type: 'object',
+							additionalProperties: false,
+							required: ['command', 'commandName', 'files'],
+							properties: {
+								command: { const: 'xargs' },
+								commandName: { const: 'cat' },
+								files: {
+									type: 'array',
+									minItems: 1,
+									maxItems: 10,
+									items: { type: 'string', minLength: 1 },
+								},
+							},
+						},
+					],
+				},
+			},
+		},
+		{
+			type: 'object',
+			additionalProperties: false,
+			required: ['operation', 'file', 'select'],
+			properties: {
+				operation: {
+					const: 'csv_query',
+					description:
+						'Query a CSV file by exact column filters and return selected columns. Prefer this over search/read/command for CSV row lookups.',
+				},
+				file: { type: 'string', minLength: 1, description: 'CSV file id or relative path.' },
+				where: {
+					type: 'array',
+					maxItems: 10,
+					description: 'Optional row filters. All filters are ANDed.',
+					items: {
+						oneOf: [
+							{
+								type: 'object',
+								additionalProperties: false,
+								required: ['column', 'op', 'value'],
+								properties: {
+									column: { type: 'string', minLength: 1 },
+									op: { const: 'eq' },
+									value: { type: 'string' },
+								},
+							},
+							{
+								type: 'object',
+								additionalProperties: false,
+								required: ['column', 'op', 'value'],
+								properties: {
+									column: { type: 'string', minLength: 1 },
+									op: { const: 'in' },
+									value: {
+										type: 'array',
+										minItems: 1,
+										maxItems: 50,
+										items: { type: 'string' },
+									},
+								},
+							},
+							{
+								type: 'object',
+								additionalProperties: false,
+								required: ['column', 'op', 'value'],
+								properties: {
+									column: { type: 'string', minLength: 1 },
+									op: { const: 'contains' },
+									value: { type: 'string' },
+								},
+							},
+						],
+					},
+				},
+				select: {
+					type: 'array',
+					minItems: 1,
+					maxItems: 50,
+					items: { type: 'string', minLength: 1 },
+					description: 'Columns to return.',
+				},
+				limit: {
+					type: 'integer',
+					minimum: 1,
+					maximum: 100,
+					default: 20,
+					description: 'Maximum rows to return. Defaults to 20.',
+				},
+			},
+		},
+	],
+};
 
 const knowledgeFileOutputSchema = z.object({
 	id: z.string(),
@@ -92,19 +350,30 @@ const commandResultOutputSchema = z.object({
 	truncated: z.boolean(),
 });
 
+const csvQueryResultOutputSchema = z.object({
+	fileName: z.string(),
+	relativePath: z.string(),
+	columns: z.array(z.string()),
+	rowNumbers: z.array(z.number()),
+	rows: z.array(z.array(z.string())),
+	rowCount: z.number(),
+	truncated: z.boolean(),
+});
+
 const searchKnowledgeOutputSchema = z.object({
-	operation: z.enum(['list', 'search', 'read', 'command']),
+	operation: z.enum(['list', 'search', 'read', 'command', 'csv_query']),
 	files: z.array(knowledgeFileOutputSchema),
 	result: commandResultOutputSchema.optional(),
+	csv: csvQueryResultOutputSchema.optional(),
 	error: z.string().optional(),
 });
 
-type SearchKnowledgeInput = z.infer<typeof searchKnowledgeInputSchema>;
 type ParsedSearchKnowledgeInput =
 	| z.infer<typeof listInputSchema>
 	| z.infer<typeof searchInputSchema>
 	| z.infer<typeof readInputSchema>
-	| z.infer<typeof commandInputSchema>;
+	| z.infer<typeof commandInputSchema>
+	| z.infer<typeof csvQueryInputSchema>;
 type SearchKnowledgeOutput = z.infer<typeof searchKnowledgeOutputSchema>;
 
 export function createSearchKnowledgeTool({
@@ -120,16 +389,16 @@ export function createSearchKnowledgeTool({
 }) {
 	return new Tool('search_knowledge')
 		.description(
-			'List, read, and search files uploaded to this agent knowledge base. ' +
+			'List, read, search, and query files uploaded to this agent knowledge base. ' +
 				'Use this when the user asks about uploaded documents or facts likely contained in them.',
 		)
 		.systemInstruction(
 			'Use search_knowledge to inspect uploaded knowledge files. Do not claim a file says something ' +
-				'unless you found it via list, search, read, or command. Prefer search before reading large files.',
+				'unless you found it via list, search, read, command, or csv_query. Prefer csv_query for CSV row/column lookups.',
 		)
 		.input(searchKnowledgeInputSchema)
 		.output(searchKnowledgeOutputSchema)
-		.handler(async (input): Promise<SearchKnowledgeOutput> => {
+		.handler(async (input: unknown): Promise<SearchKnowledgeOutput> => {
 			return await commandService.withWorkspace(async (workspaceRoot) => {
 				const files = await knowledgeService.materializeWorkspace(
 					agentId,
@@ -138,15 +407,11 @@ export function createSearchKnowledgeTool({
 				);
 
 				try {
-					return await handleKnowledgeOperation(
-						parseSearchKnowledgeInput(input),
-						workspaceRoot,
-						files,
-						commandService,
-					);
+					const parsedInput = parseSearchKnowledgeInput(input);
+					return await handleKnowledgeOperation(parsedInput, workspaceRoot, files, commandService);
 				} catch (error) {
 					return {
-						operation: input.operation,
+						operation: getOperation(input),
 						files,
 						error: error instanceof Error ? error.message : String(error),
 					};
@@ -215,20 +480,116 @@ async function handleKnowledgeOperation(
 					mapCommandFileReferences(files, input.request),
 				),
 			};
+		case 'csv_query':
+			return {
+				operation: 'csv_query',
+				files,
+				csv: await queryCsv(workspaceRoot, files, input),
+			};
 	}
 }
 
-function parseSearchKnowledgeInput(input: SearchKnowledgeInput): ParsedSearchKnowledgeInput {
-	switch (input.operation) {
-		case 'list':
-			return listInputSchema.parse(input);
-		case 'search':
-			return searchInputSchema.parse(input);
-		case 'read':
-			return readInputSchema.parse(input);
-		case 'command':
-			return commandInputSchema.parse(input);
+function parseSearchKnowledgeInput(input: unknown): ParsedSearchKnowledgeInput {
+	return searchKnowledgeParsingSchema.parse(input);
+}
+
+function getOperation(input: unknown): SearchKnowledgeOutput['operation'] {
+	const parsed = z
+		.object({ operation: z.enum(['list', 'search', 'read', 'command', 'csv_query']) })
+		.safeParse(input);
+	return parsed.success ? parsed.data.operation : 'command';
+}
+
+async function queryCsv(
+	workspaceRoot: string,
+	files: Awaited<ReturnType<AgentKnowledgeService['materializeWorkspace']>>,
+	input: z.infer<typeof csvQueryInputSchema>,
+) {
+	const file = files.find(
+		(candidate) => candidate.relativePath === input.file || candidate.id === input.file,
+	);
+	if (!file) {
+		throw new Error(`File "${input.file}" not found`);
 	}
+	if (!file.searchable || !isCsvFile(file)) {
+		throw new Error(`File "${file.fileName}" is not queryable as CSV.`);
+	}
+
+	const csvText = await readFile(path.join(workspaceRoot, file.relativePath), 'utf8');
+	const { parse } = await import('csv-parse/sync');
+	const records: Array<{ record: Record<string, unknown>; info: { lines: number } }> = parse(
+		csvText,
+		{
+			columns: true,
+			skip_empty_lines: true,
+			bom: true,
+			info: true,
+			relax_column_count: true,
+		},
+	);
+
+	const headers = records.length > 0 ? Object.keys(records[0].record) : parseHeader(csvText);
+	for (const column of input.select) {
+		if (!headers.includes(column)) {
+			throw new Error(`CSV column "${column}" not found in "${file.fileName}"`);
+		}
+	}
+	for (const filter of input.where ?? []) {
+		if (!headers.includes(filter.column)) {
+			throw new Error(`CSV column "${filter.column}" not found in "${file.fileName}"`);
+		}
+	}
+
+	const limit = input.limit ?? 20;
+	const rows: string[][] = [];
+	const rowNumbers: number[] = [];
+	let matched = 0;
+	for (const { record, info } of records) {
+		if (!matchesFilters(record, input.where ?? [])) continue;
+		matched++;
+		if (rows.length < limit) {
+			rows.push(input.select.map((column) => normaliseCsvValue(record[column])));
+			rowNumbers.push(info.lines);
+		}
+	}
+
+	return {
+		fileName: file.fileName,
+		relativePath: file.relativePath,
+		columns: input.select,
+		rowNumbers,
+		rows,
+		rowCount: matched,
+		truncated: matched > rows.length,
+	};
+}
+
+function isCsvFile(
+	file: Awaited<ReturnType<AgentKnowledgeService['materializeWorkspace']>>[number],
+) {
+	return file.mimeType === 'text/csv' || file.relativePath.toLowerCase().endsWith('.csv');
+}
+
+function parseHeader(csvText: string) {
+	const [firstLine = ''] = csvText.split(/\r?\n/, 1);
+	return firstLine.split(',').map((column) => column.trim());
+}
+
+function matchesFilters(
+	record: Record<string, unknown>,
+	filters: Array<z.infer<typeof csvFilterSchema>>,
+) {
+	return filters.every((filter) => {
+		const value = normaliseCsvValue(record[filter.column]);
+		if (filter.op === 'eq') return value === filter.value;
+		if (filter.op === 'contains') return value.includes(filter.value);
+		return filter.value.includes(value);
+	});
+}
+
+function normaliseCsvValue(value: unknown) {
+	if (value === null || value === undefined) return '';
+	return String(value);
 }
 
 function mapFileReferences(

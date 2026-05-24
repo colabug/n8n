@@ -293,4 +293,38 @@ describe('AgentKnowledgeService', () => {
 			await rm(workspaceRoot, { recursive: true, force: true });
 		}
 	});
+
+	it('materializes CSV files as searchable text', async () => {
+		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
+		agentFileRepository.findByAgentId.mockResolvedValue([
+			{
+				id: 'file-1',
+				agentId,
+				binaryDataId: 'binary-1',
+				fileName: 'data.csv',
+				mimeType: 'text/csv',
+				fileSizeBytes: 17,
+				createdAt: new Date('2026-05-24T12:00:00.000Z'),
+			},
+		] as never);
+		binaryDataService.getAsBuffer.mockResolvedValue(Buffer.from('name,age\nAlice,30\n'));
+		const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-service-'));
+		try {
+			const files = await service.materializeWorkspace(agentId, projectId, workspaceRoot);
+
+			expect(files).toEqual([
+				expect.objectContaining({
+					fileName: 'data.csv',
+					mimeType: 'text/csv',
+					relativePath: 'file-1.csv',
+					searchable: true,
+				}),
+			]);
+			await expect(readFile(path.join(workspaceRoot, 'file-1.csv'), 'utf8')).resolves.toBe(
+				'name,age\nAlice,30\n',
+			);
+		} finally {
+			await rm(workspaceRoot, { recursive: true, force: true });
+		}
+	});
 });

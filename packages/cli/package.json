@@ -156,6 +156,7 @@
     "cookie-parser": "1.4.7",
     "cron": "catalog:",
     "csrf": "3.1.0",
+    "csv-parse": "catalog:",
     "dotenv": "17.2.3",
     "express": "5.1.0",
     "express-handlebars": "8.0.1",

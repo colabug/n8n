@@ -103,7 +103,7 @@ function onFilesSelected(event: Event) {
 		<input
 			ref="fileInput"
 			type="file"
-			accept=".pdf,.md,.markdown,.txt"
+			accept=".csv,.pdf,.md,.markdown,.txt"
 			multiple
 			:class="$style.fileInput"
 			data-testid="agent-files-upload-input"

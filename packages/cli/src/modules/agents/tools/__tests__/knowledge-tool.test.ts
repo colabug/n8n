@@ -1,7 +1,6 @@
 import { AgentKnowledgeCommandService } from '../../agent-knowledge-command.service';
 import type { AgentKnowledgeService } from '../../agent-knowledge.service';
 import { createSearchKnowledgeTool } from '../knowledge-tool';
-import { z } from 'zod';
 
 jest.unmock('node:fs/promises');
 
@@ -31,7 +30,18 @@ describe('search_knowledge tool', () => {
 			commandService,
 		});
 
-		expect(tool.inputSchema).toBeInstanceOf(z.ZodObject);
+		expect(tool.inputSchema).toMatchObject({
+			type: 'object',
+			oneOf: expect.arrayContaining([
+				expect.objectContaining({
+					properties: expect.objectContaining({
+						operation: expect.objectContaining({ const: 'csv_query' }),
+						where: expect.any(Object),
+						select: expect.any(Object),
+					}),
+				}),
+			]),
+		});
 	});
 
 	it('lists uploaded knowledge files', async () => {
@@ -103,6 +113,41 @@ describe('search_knowledge tool', () => {
 		);
 	});
 
+	it('rejects CSV query fields on search operations', async () => {
+		knowledgeService.materializeWorkspace.mockResolvedValue([
+			{
+				id: 'file-1',
+				fileName: 'owid-co2-data.csv',
+				mimeType: 'text/csv',
+				fileSizeBytes: 200,
+				relativePath: 'file-1.csv',
+				searchable: true,
+			},
+		]);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{
+					operation: 'search',
+					query: '^Germany,2022,',
+					where: [{ column: 'year', op: 'eq', value: '2022' }],
+					select: ['country', 'year'],
+					limit: 1,
+				},
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			operation: 'search',
+			error: expect.stringContaining("Unrecognized key(s) in object: 'where', 'select', 'limit'"),
+		});
+	});
+
 	it('returns a structured error for non-text PDFs', async () => {
 		knowledgeService.materializeWorkspace.mockResolvedValue([
 			{
@@ -169,6 +214,110 @@ describe('search_knowledge tool', () => {
 				command: 'cat',
 				stdout: 'extracted PDF text\n',
 			},
+		});
+	});
+
+	it('queries CSV rows with selected columns in one operation', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(
+					path.join(workspaceRoot, 'file-1.csv'),
+					[
+						'country,year,population,co2,co2_per_capita',
+						'Germany,2022,84086227,667.843,7.942',
+						'France,2022,66277412,295.304,4.456',
+						'Germany,2021,83196078,677.998,8.149',
+					].join('\n'),
+				);
+				return [
+					{
+						id: 'file-1',
+						fileName: 'owid-co2-data.csv',
+						mimeType: 'text/csv',
+						fileSizeBytes: 200,
+						relativePath: 'file-1.csv',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{
+					operation: 'csv_query',
+					file: 'file-1',
+					where: [
+						{ column: 'country', op: 'in', value: ['Germany', 'France'] },
+						{ column: 'year', op: 'eq', value: '2022' },
+					],
+					select: ['country', 'year', 'population', 'co2', 'co2_per_capita'],
+					limit: 10,
+				},
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			operation: 'csv_query',
+			csv: {
+				fileName: 'owid-co2-data.csv',
+				relativePath: 'file-1.csv',
+				columns: ['country', 'year', 'population', 'co2', 'co2_per_capita'],
+				rowNumbers: [2, 3],
+				rows: [
+					['Germany', '2022', '84086227', '667.843', '7.942'],
+					['France', '2022', '66277412', '295.304', '4.456'],
+				],
+				rowCount: 2,
+				truncated: false,
+			},
+		});
+	});
+
+	it('returns a structured error when CSV columns are missing', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.csv'), 'country,year\nGermany,2022\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'owid-co2-data.csv',
+						mimeType: 'text/csv',
+						fileSizeBytes: 27,
+						relativePath: 'file-1.csv',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{
+					operation: 'csv_query',
+					file: 'file-1',
+					select: ['country', 'co2'],
+				},
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			operation: 'csv_query',
+			error: 'CSV column "co2" not found in "owid-co2-data.csv"',
 		});
 	});
 });
