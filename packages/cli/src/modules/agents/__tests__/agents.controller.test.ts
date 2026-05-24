@@ -13,6 +13,7 @@ import type { AgentScheduleService } from '../integrations/agent-schedule.servic
 import type { ChatIntegrationService } from '../integrations/chat-integration.service';
 import type { SlackAppSetupService } from '../integrations/slack-app-setup.service';
 import type { AgentExecutionService } from '../agent-execution.service';
+import type { AgentKnowledgeService } from '../agent-knowledge.service';
 import type { AgentRepository } from '../repositories/agent.repository';
 import { AgentsController } from '../agents.controller';
 import { AgentsCredentialProvider } from '../adapters/agents-credential-provider';
@@ -43,6 +44,7 @@ function makeController({
 	agentRepository = mock<AgentRepository>(),
 	chatIntegrationRegistry = mock<ChatIntegrationRegistry>(),
 	slackAppSetupService = mock<SlackAppSetupService>(),
+	agentKnowledgeService = mock<AgentKnowledgeService>(),
 }: {
 	agentsService?: jest.Mocked<AgentsService>;
 	credentialsService?: jest.Mocked<CredentialsService>;
@@ -51,6 +53,7 @@ function makeController({
 	agentRepository?: jest.Mocked<AgentRepository>;
 	chatIntegrationRegistry?: jest.Mocked<ChatIntegrationRegistry>;
 	slackAppSetupService?: jest.Mocked<SlackAppSetupService>;
+	agentKnowledgeService?: jest.Mocked<AgentKnowledgeService>;
 } = {}) {
 	if (!chatIntegrationRegistry.require.getMockImplementation()) {
 		chatIntegrationRegistry.require.mockImplementation(
@@ -73,6 +76,7 @@ function makeController({
 		mock<AgentExecutionService>(),
 		chatIntegrationRegistry,
 		slackAppSetupService,
+		agentKnowledgeService,
 	);
 
 	return {
@@ -84,6 +88,7 @@ function makeController({
 		agentRepository,
 		chatIntegrationRegistry,
 		slackAppSetupService,
+		agentKnowledgeService,
 	};
 }
 
@@ -110,10 +115,75 @@ describe('AgentsController route access scopes', () => {
 		['updateSkill', 'agent:update'],
 		['deleteSkill', 'agent:update'],
 		['revertToPublished', 'agent:update'],
+		['listFiles', 'agent:read'],
+		['uploadFiles', 'agent:update'],
 		['createSlackApp', 'agent:update'],
 		['getSlackAppManifest', 'agent:read'],
 	])('%s uses %s', (handlerName, scope) => {
 		expect(metadata.routes.get(handlerName)?.accessScope?.scope).toBe(scope);
+	});
+});
+
+describe('AgentsController file uploads', () => {
+	it('lists files with the project and agent IDs', async () => {
+		const agentKnowledgeService = mock<AgentKnowledgeService>();
+		agentKnowledgeService.listFiles.mockResolvedValue([
+			{
+				id: 'file-1',
+				agentId: 'agent-1',
+				binaryDataId: 'binary-1',
+				fileName: 'document.txt',
+				mimeType: 'text/plain',
+				fileSizeBytes: 5,
+				createdAt: new Date().toISOString(),
+			},
+		]);
+		const { controller } = makeController({ agentKnowledgeService });
+
+		await controller.listFiles(
+			{ params: { projectId: 'project-1' } } as never,
+			undefined as never,
+			'agent-1',
+		);
+
+		expect(agentKnowledgeService.listFiles).toHaveBeenCalledWith('agent-1', 'project-1');
+	});
+
+	it('rejects empty uploads', async () => {
+		const { controller } = makeController();
+
+		await expect(
+			controller.uploadFiles(
+				{ params: { projectId: 'project-1' }, files: [] } as never,
+				undefined as never,
+				'agent-1',
+			),
+		).rejects.toThrow(BadRequestError);
+	});
+
+	it('delegates valid uploads with the project and agent IDs', async () => {
+		const agentKnowledgeService = mock<AgentKnowledgeService>();
+		agentKnowledgeService.uploadFiles.mockResolvedValue([
+			{
+				id: 'file-1',
+				agentId: 'agent-1',
+				binaryDataId: 'binary-1',
+				fileName: 'document.txt',
+				mimeType: 'text/plain',
+				fileSizeBytes: 5,
+				createdAt: new Date().toISOString(),
+			},
+		]);
+		const { controller } = makeController({ agentKnowledgeService });
+		const files = [{ originalname: 'document.txt' }] as Express.Multer.File[];
+
+		await controller.uploadFiles(
+			{ params: { projectId: 'project-1' }, files } as never,
+			undefined as never,
+			'agent-1',
+		);
+
+		expect(agentKnowledgeService.uploadFiles).toHaveBeenCalledWith('agent-1', 'project-1', files);
 	});
 });
 
@@ -151,6 +221,7 @@ describe('AgentsController integration credentials', () => {
 			mock<AgentExecutionService>(),
 			mock<ChatIntegrationRegistry>(),
 			mock<SlackAppSetupService>(),
+			mock<AgentKnowledgeService>(),
 		);
 
 		await expect(
@@ -525,6 +596,7 @@ describe('AgentsController agent resource', () => {
 			mock<AgentExecutionService>(),
 			mock<ChatIntegrationRegistry>(),
 			mock<SlackAppSetupService>(),
+			mock<AgentKnowledgeService>(),
 		);
 
 		const result = await controller.get(
@@ -569,6 +641,7 @@ describe('AgentsController agent resource', () => {
 			mock<AgentExecutionService>(),
 			mock<ChatIntegrationRegistry>(),
 			mock<SlackAppSetupService>(),
+			mock<AgentKnowledgeService>(),
 		);
 
 		const result = await controller.get(
@@ -602,6 +675,7 @@ describe('AgentsController chat message history', () => {
 			mock<AgentExecutionService>(),
 			mock<ChatIntegrationRegistry>(),
 			mock<SlackAppSetupService>(),
+			mock<AgentKnowledgeService>(),
 		);
 
 		return { controller, agentsService };

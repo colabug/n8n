@@ -121,6 +121,16 @@ export interface AgentPublishedVersionDto {
 	publishedById: string | null;
 }
 
+export interface AgentFileDto {
+	id: string;
+	agentId: string;
+	binaryDataId: string;
+	fileName: string;
+	mimeType: string;
+	fileSizeBytes: number;
+	createdAt: string;
+}
+
 export interface AgentPersistedMessageContentPart {
 	type: 'text' | 'reasoning' | 'tool-call' | (string & {});
 	text?: string;

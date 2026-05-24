@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { N8nResizeWrapper, type DropdownMenuItemProps } from '@n8n/design-system';
 import { useI18n } from '@n8n/i18n';
 import { AGENT_SCHEDULE_TRIGGER_TYPE } from '@n8n/api-types';
+import type { AgentFileDto } from '@n8n/api-types';
 import { useRootStore } from '@n8n/stores/useRootStore';
 import { useProjectsStore } from '@/features/collaboration/projects/projects.store';
 import { useTelemetry } from '@/app/composables/useTelemetry';
@@ -17,6 +18,8 @@ import { deepCopy } from 'n8n-workflow';
 import {
 	getAgent,
 	deleteAgent,
+	listAgentFiles,
+	uploadAgentFiles,
 	updateAgentSkill,
 	createAgentSkill,
 } from '../composables/useAgentApi';
@@ -91,6 +94,9 @@ function onBuildChatStreamingChange(streaming: boolean) {
 const initialized = ref(false);
 const agentName = ref('');
 const agent = ref<AgentResource | null>(null);
+const agentFiles = ref<AgentFileDto[]>([]);
+const agentFilesLoading = ref(false);
+const agentFilesUploading = ref(false);
 
 watch(agentName, (name) => {
 	documentTitle.set(name || locale.baseText('agents.heading'));
@@ -200,6 +206,58 @@ async function fetchAgent(
 	if (agentId.value !== targetAgentId || projectId.value !== targetProjectId) return;
 	agent.value = data;
 	agentName.value = data.name;
+}
+
+async function fetchAgentFiles(
+	targetProjectId: string = projectId.value,
+	targetAgentId: string = agentId.value,
+) {
+	agentFilesLoading.value = true;
+	try {
+		const files = await listAgentFiles(rootStore.restApiContext, targetProjectId, targetAgentId);
+		if (agentId.value !== targetAgentId || projectId.value !== targetProjectId) return;
+		agentFiles.value = files;
+	} catch (error) {
+		showError(error, locale.baseText('agents.builder.files.loadError'));
+	} finally {
+		if (agentId.value === targetAgentId && projectId.value === targetProjectId) {
+			agentFilesLoading.value = false;
+		}
+	}
+}
+
+async function onUploadAgentFiles(files: File[]) {
+	if (files.length === 0) return;
+
+	const targetProjectId = projectId.value;
+	const targetAgentId = agentId.value;
+	agentFilesUploading.value = true;
+	try {
+		const uploadedFiles = await uploadAgentFiles(
+			rootStore.restApiContext,
+			targetProjectId,
+			targetAgentId,
+			files,
+		);
+		if (agentId.value !== targetAgentId || projectId.value !== targetProjectId) return;
+		const existingById = new Map(agentFiles.value.map((file) => [file.id, file]));
+		for (const file of uploadedFiles) {
+			existingById.set(file.id, file);
+		}
+		agentFiles.value = Array.from(existingById.values()).sort(
+			(a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+		);
+		showMessage({
+			title: locale.baseText('agents.builder.files.uploaded'),
+			type: 'success',
+		});
+	} catch (error) {
+		showError(error, locale.baseText('agents.builder.files.uploadError'));
+	} finally {
+		if (agentId.value === targetAgentId && projectId.value === targetProjectId) {
+			agentFilesUploading.value = false;
+		}
+	}
 }
 
 function sessionIdForPreview(): string {
@@ -526,6 +584,7 @@ async function initialize() {
 	activeChatSessionId.value = null;
 	localConfig.value = null;
 	connectedTriggers.value = [];
+	agentFiles.value = [];
 
 	// Refresh builder readiness so the empty-state CTA reflects the latest
 	// admin configuration. Never blocks the rest of the load.
@@ -533,8 +592,7 @@ async function initialize() {
 		showError(error, locale.baseText('settings.agentBuilder.loadError'));
 	});
 
-	await fetchAgent();
-	await fetchConfig(projectId.value, agentId.value);
+	await Promise.all([fetchAgent(), fetchConfig(projectId.value, agentId.value), fetchAgentFiles()]);
 	builderTelemetry.captureToolsBaseline();
 	builderTelemetry.captureSkillsBaseline();
 	// Keep agent credential pickers aligned with the workflow editor: load only
@@ -913,6 +971,9 @@ function onSwitchAgent(nextAgentId: string) {
 				:agent="agent"
 				:project-id="projectId"
 				:agent-id="agentId"
+				:agent-files="agentFiles"
+				:agent-files-loading="agentFilesLoading"
+				:agent-files-uploading="agentFilesUploading"
 				:applied-skills="appliedSkills"
 				:connected-triggers="connectedTriggers"
 				:is-build-chat-streaming="isBuildChatStreaming"
@@ -926,6 +987,7 @@ function onSwitchAgent(nextAgentId: string) {
 				@add-tool="onOpenAddToolModal"
 				@add-skill="onOpenAddSkillModal"
 				@add-trigger="onOpenAddTriggerModal"
+				@upload-files="onUploadAgentFiles"
 				@remove-tool="onRemoveTool"
 				@remove-skill="onRemoveSkill"
 				@update:connected-triggers="onConnectedTriggersUpdate"
