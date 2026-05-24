@@ -128,4 +128,47 @@ describe('search_knowledge tool', () => {
 			error: 'File "document.pdf" is not readable as plain text in this version.',
 		});
 	});
+
+	it('reads extracted PDF text when materialized as searchable text', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.pdf.txt'), 'extracted PDF text\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'document.pdf',
+						mimeType: 'text/plain',
+						fileSizeBytes: 200,
+						relativePath: 'file-1.pdf.txt',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.({ operation: 'read', file: 'file-1' }, {} as never),
+		).resolves.toMatchObject({
+			operation: 'read',
+			files: [
+				expect.objectContaining({
+					fileName: 'document.pdf',
+					relativePath: 'file-1.pdf.txt',
+					searchable: true,
+				}),
+			],
+			result: {
+				command: 'cat',
+				stdout: 'extracted PDF text\n',
+			},
+		});
+	});
 });

@@ -26,6 +26,7 @@ const props = defineProps<{
 	agentFiles: AgentFileDto[];
 	agentFilesLoading: boolean;
 	agentFilesUploading: boolean;
+	deletingAgentFileId?: string | null;
 	appliedSkills: Array<{ id: string; skill: AgentSkill }>;
 	connectedTriggers: string[];
 	isBuildChatStreaming: boolean;
@@ -47,6 +48,7 @@ const emit = defineEmits<{
 	'remove-tool': [index: number];
 	'remove-skill': [id: string];
 	'upload-files': [files: File[]];
+	'delete-file': [file: AgentFileDto];
 	'update:connected-triggers': [triggers: string[]];
 	'trigger-added': [payload: { triggerType: string; triggers: string[] }];
 }>();
@@ -138,8 +140,10 @@ const i18n = useI18n();
 							:disabled="childrenDisabled"
 							:loading="agentFilesLoading"
 							:uploading="agentFilesUploading"
+							:deleting-file-id="deletingAgentFileId"
 							data-testid="agent-files-card"
 							@upload-files="emit('upload-files', $event)"
+							@delete-file="emit('delete-file', $event)"
 						/>
 					</N8nCard>
 

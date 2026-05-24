@@ -213,6 +213,9 @@ catalogs:
     oxlint-tsgolint:
       specifier: ^0.21.1
       version: 0.21.1
+    pdf-parse:
+      specifier: 2.4.5
+      version: 2.4.5
     pg:
       specifier: 8.17.0
       version: 8.17.0
@@ -2959,6 +2962,9 @@ importers:
       p-limit:
         specifier: ^3.1.0
         version: 3.1.0
+      pdf-parse:
+        specifier: 'catalog:'
+        version: 2.4.5
       pg:
         specifier: 'catalog:'
         version: 8.17.0

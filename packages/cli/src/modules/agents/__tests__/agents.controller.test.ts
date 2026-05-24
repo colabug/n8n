@@ -117,6 +117,7 @@ describe('AgentsController route access scopes', () => {
 		['revertToPublished', 'agent:update'],
 		['listFiles', 'agent:read'],
 		['uploadFiles', 'agent:update'],
+		['deleteFile', 'agent:update'],
 		['createSlackApp', 'agent:update'],
 		['getSlackAppManifest', 'agent:read'],
 	])('%s uses %s', (handlerName, scope) => {
@@ -184,6 +185,22 @@ describe('AgentsController file uploads', () => {
 		);
 
 		expect(agentKnowledgeService.uploadFiles).toHaveBeenCalledWith('agent-1', 'project-1', files);
+	});
+
+	it('deletes files with the project, agent, and file IDs', async () => {
+		const agentKnowledgeService = mock<AgentKnowledgeService>();
+		const { controller } = makeController({ agentKnowledgeService });
+
+		await expect(
+			controller.deleteFile(
+				{ params: { projectId: 'project-1' } } as never,
+				undefined as never,
+				'agent-1',
+				'file-1',
+			),
+		).resolves.toEqual({ success: true });
+
+		expect(agentKnowledgeService.deleteFile).toHaveBeenCalledWith('agent-1', 'project-1', 'file-1');
 	});
 });
 

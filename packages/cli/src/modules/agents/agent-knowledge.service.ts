@@ -6,6 +6,7 @@ import { UnexpectedError, type IBinaryData } from 'n8n-workflow';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { BadRequestError } from '@/errors/response-errors/bad-request.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 
 import { AgentFile } from './entities/agent-file.entity';
@@ -19,6 +20,13 @@ export interface KnowledgeWorkspaceFile {
 	fileSizeBytes: number;
 	relativePath: string;
 	searchable: boolean;
+}
+
+interface StoredFileContent {
+	buffer: Buffer;
+	mimeType: string;
+	fileName: string;
+	fileExtension: string | undefined;
 }
 
 @Service()
@@ -52,6 +60,18 @@ export class AgentKnowledgeService {
 		return files.map((file) => this.toDto(file));
 	}
 
+	async deleteFile(agentId: string, projectId: string, fileId: string): Promise<void> {
+		await this.ensureAgentBelongsToProject(agentId, projectId);
+
+		const file = await this.agentFileRepository.findByIdAndAgentId(fileId, agentId);
+		if (!file) {
+			throw new NotFoundError(`Agent file "${fileId}" not found`);
+		}
+
+		await this.agentFileRepository.delete({ id: fileId, agentId });
+		await this.binaryDataService.deleteManyByBinaryDataId([file.binaryDataId]);
+	}
+
 	async materializeWorkspace(agentId: string, projectId: string, workspaceRoot: string) {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
 		await mkdir(workspaceRoot, { recursive: true });
@@ -60,7 +80,7 @@ export class AgentKnowledgeService {
 		const materializedFiles: KnowledgeWorkspaceFile[] = [];
 
 		for (const file of files) {
-			const relativePath = `${file.id}${path.extname(file.fileName)}`;
+			const relativePath = this.getWorkspaceRelativePath(file);
 			const targetPath = path.join(workspaceRoot, relativePath);
 			const searchable = this.isSearchable(file);
 
@@ -98,14 +118,14 @@ export class AgentKnowledgeService {
 			const fileId = generateNanoId();
 			const fileName = sanitizeFilename(Buffer.from(file.originalname, 'latin1').toString('utf8'));
 			const buffer = file.buffer ?? (await readFile(file.path));
-			const mimeType = file.mimetype || 'application/octet-stream';
+			const storedContent = await this.prepareStoredContent(fileName, file.mimetype, buffer);
 			const binaryData: IBinaryData = {
 				data: '',
-				mimeType,
-				fileName,
-				fileSize: `${buffer.length}`,
-				bytes: buffer.length,
-				fileExtension: fileName.split('.').pop(),
+				mimeType: storedContent.mimeType,
+				fileName: storedContent.fileName,
+				fileSize: `${storedContent.buffer.length}`,
+				bytes: storedContent.buffer.length,
+				fileExtension: storedContent.fileExtension,
 			};
 
 			const storedBinaryData = await this.binaryDataService.store(
@@ -114,7 +134,7 @@ export class AgentKnowledgeService {
 					sourceId: fileId,
 					pathSegments: ['agents', agentId, 'files', fileId],
 				}),
-				buffer,
+				storedContent.buffer,
 				binaryData,
 			);
 
@@ -127,7 +147,7 @@ export class AgentKnowledgeService {
 				agentId,
 				binaryDataId: storedBinaryData.id,
 				fileName,
-				mimeType,
+				mimeType: storedContent.mimeType,
 				fileSizeBytes: buffer.length,
 			});
 
@@ -153,6 +173,70 @@ export class AgentKnowledgeService {
 
 	private isSearchable(file: AgentFile) {
 		const extension = file.fileName.split('.').pop()?.toLowerCase();
-		return extension === 'txt' || extension === 'md' || extension === 'markdown';
+		return (
+			file.mimeType === 'text/plain' ||
+			file.mimeType === 'text/markdown' ||
+			extension === 'txt' ||
+			extension === 'md' ||
+			extension === 'markdown'
+		);
+	}
+
+	private getWorkspaceRelativePath(file: AgentFile) {
+		const extension = file.fileName.split('.').pop()?.toLowerCase();
+		if (extension === 'pdf' && file.mimeType === 'text/plain') {
+			return `${file.id}.pdf.txt`;
+		}
+		return `${file.id}${path.extname(file.fileName)}`;
+	}
+
+	private async prepareStoredContent(
+		fileName: string,
+		mimeType: string,
+		buffer: Buffer,
+	): Promise<StoredFileContent> {
+		if (!this.isPdf(fileName, mimeType)) {
+			return {
+				buffer,
+				mimeType: mimeType || 'application/octet-stream',
+				fileName,
+				fileExtension: fileName.split('.').pop(),
+			};
+		}
+
+		const extractedText = await this.extractPdfText(fileName, buffer);
+		const extractedBuffer = Buffer.from(extractedText, 'utf8');
+
+		return {
+			buffer: extractedBuffer,
+			mimeType: 'text/plain',
+			fileName: `${fileName}.txt`,
+			fileExtension: 'txt',
+		};
+	}
+
+	private isPdf(fileName: string, mimeType: string) {
+		return path.extname(fileName).toLowerCase() === '.pdf' || mimeType === 'application/pdf';
+	}
+
+	private async extractPdfText(fileName: string, buffer: Buffer) {
+		const { PDFParse } = await import('pdf-parse');
+		const parser = new PDFParse({ data: buffer });
+		try {
+			const result = await parser.getText();
+			const text = result.text.trim();
+			if (!text) {
+				throw new BadRequestError(
+					`PDF "${fileName}" contains no extractable text and cannot be added to knowledge`,
+				);
+			}
+			return text;
+		} catch (error) {
+			if (error instanceof BadRequestError) throw error;
+			const message = error instanceof Error ? error.message : 'unknown error';
+			throw new BadRequestError(`Failed to extract text from PDF "${fileName}": ${message}`);
+		} finally {
+			await parser.destroy();
+		}
 	}
 }

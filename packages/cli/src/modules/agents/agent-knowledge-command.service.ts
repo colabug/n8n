@@ -88,7 +88,9 @@ export class AgentKnowledgeCommandService {
 				}
 				args.push('--', request.pattern);
 				const files = await Promise.all(
-					(request.files ?? ['.']).map((file) => this.safePath(root, file, { allowRoot: true })),
+					(request.files ?? ['.']).map(
+						async (file) => await this.safePath(root, file, { allowRoot: true }),
+					),
 				);
 				args.push(...files.map((file) => path.relative(root, file) || '.'));
 				return { executable: 'git', args };
@@ -131,7 +133,9 @@ export class AgentKnowledgeCommandService {
 				return { executable: 'awk', args };
 			}
 			case 'xargs': {
-				const files = await Promise.all(request.files.map((file) => this.safePath(root, file)));
+				const files = await Promise.all(
+					request.files.map(async (file) => await this.safePath(root, file)),
+				);
 				return {
 					executable: 'xargs',
 					args: ['cat'],
@@ -142,7 +146,7 @@ export class AgentKnowledgeCommandService {
 	}
 
 	private async safePath(root: string, requestedPath: string, options: SafePathOptions = {}) {
-		if (/[\u0000-\u001F\u007F]/.test(requestedPath)) throw new Error('Invalid path');
+		if (this.hasControlCharacters(requestedPath)) throw new Error('Invalid path');
 		if (path.isAbsolute(requestedPath)) throw new Error('Absolute paths are not allowed');
 		if (requestedPath.split(/[\\/]/).includes('..')) {
 			throw new Error('Parent path segments are not allowed');
@@ -161,11 +165,21 @@ export class AgentKnowledgeCommandService {
 	}
 
 	private validateFindName(name: string) {
-		if (/[\u0000-\u001F\u007F/\\]/.test(name)) throw new Error('Invalid find name pattern');
+		if (this.hasControlCharacters(name) || name.includes('/') || name.includes('\\')) {
+			throw new Error('Invalid find name pattern');
+		}
 	}
 
 	private validateFieldSeparator(separator: string) {
-		if (/[\u0000-\u001F\u007F]/.test(separator)) throw new Error('Invalid field separator');
+		if (this.hasControlCharacters(separator)) throw new Error('Invalid field separator');
+	}
+
+	private hasControlCharacters(value: string) {
+		for (const character of value) {
+			const code = character.charCodeAt(0);
+			if (code <= 0x1f || code === 0x7f) return true;
+		}
+		return false;
 	}
 
 	private async spawnCommand(

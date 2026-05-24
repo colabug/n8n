@@ -1,11 +1,11 @@
 import { Tool } from '@n8n/agents/tool';
 import { z } from 'zod';
 
-import {
+import type {
 	AgentKnowledgeCommandService,
-	type AgentKnowledgeCommandRequest,
+	AgentKnowledgeCommandRequest,
 } from '../agent-knowledge-command.service';
-import { AgentKnowledgeService } from '../agent-knowledge.service';
+import type { AgentKnowledgeService } from '../agent-knowledge.service';
 
 const lineRangeSchema = z.object({
 	start: z.number().int().min(1),

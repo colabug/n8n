@@ -25,13 +25,13 @@ export class AgentUploadMiddleware {
 		this.upload = multer({
 			storage: multer.diskStorage({}),
 			limits: { fileSize: maxFileSizeBytes },
-			fileFilter: (_req, file, callback) => {
+			fileFilter: (_req, file, done) => {
 				if (!isAllowedAgentFile(file)) {
-					callback(new BadRequestError('Only PDF, Markdown, and TXT files are allowed'));
+					done(new BadRequestError('Only PDF, Markdown, and TXT files are allowed'));
 					return;
 				}
 
-				callback(null, true);
+				done(null, true);
 			},
 		});
 	}

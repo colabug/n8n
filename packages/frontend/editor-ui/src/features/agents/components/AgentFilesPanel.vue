@@ -21,22 +21,26 @@ const props = withDefaults(
 		disabled?: boolean;
 		loading?: boolean;
 		uploading?: boolean;
+		deletingFileId?: string | null;
 	}>(),
 	{
 		disabled: false,
 		loading: false,
 		uploading: false,
+		deletingFileId: null,
 	},
 );
 
 const emit = defineEmits<{
 	'upload-files': [files: File[]];
+	'delete-file': [file: AgentFileDto];
 }>();
 
 const i18n = useI18n();
 const fileInput = useTemplateRef<HTMLInputElement>('fileInput');
 const totalCount = computed(() => props.files.length);
-const isUploadDisabled = computed(() => props.disabled || props.loading || props.uploading);
+const isMutating = computed(() => props.uploading || props.deletingFileId !== null);
+const isUploadDisabled = computed(() => props.disabled || props.loading || isMutating.value);
 
 function formatFileSize(bytes: number) {
 	if (bytes < 1024)
@@ -138,6 +142,21 @@ function onFilesSelected(event: Event) {
 					<N8nText size="small" color="text-light" :class="$style.metadata">
 						{{ file.mimeType }} · {{ formatFileSize(file.fileSizeBytes) }}
 					</N8nText>
+
+					<template #append>
+						<N8nTooltip :content="i18n.baseText('agents.builder.files.delete')" placement="top">
+							<N8nIconButton
+								icon="trash-2"
+								variant="ghost"
+								size="mini"
+								:disabled="props.disabled || props.loading || isMutating"
+								:loading="props.deletingFileId === file.id"
+								:aria-label="i18n.baseText('agents.builder.files.delete')"
+								data-testid="agent-files-delete"
+								@click="emit('delete-file', file)"
+							/>
+						</N8nTooltip>
+					</template>
 				</N8nCard>
 			</div>
 		</N8nScrollArea>
@@ -194,6 +213,6 @@ function onFilesSelected(event: Event) {
 	white-space: nowrap;
 	font-size: var(--font-size--xs);
 	line-height: var(--line-height--md);
-	max-width: 80%;
+	max-width: 100%;
 }
 </style>

@@ -20,6 +20,7 @@ import {
 	deleteAgent,
 	listAgentFiles,
 	uploadAgentFiles,
+	deleteAgentFile,
 	updateAgentSkill,
 	createAgentSkill,
 } from '../composables/useAgentApi';
@@ -97,6 +98,7 @@ const agent = ref<AgentResource | null>(null);
 const agentFiles = ref<AgentFileDto[]>([]);
 const agentFilesLoading = ref(false);
 const agentFilesUploading = ref(false);
+const deletingAgentFileId = ref<string | null>(null);
 
 watch(agentName, (name) => {
 	documentTitle.set(name || locale.baseText('agents.heading'));
@@ -256,6 +258,41 @@ async function onUploadAgentFiles(files: File[]) {
 	} finally {
 		if (agentId.value === targetAgentId && projectId.value === targetProjectId) {
 			agentFilesUploading.value = false;
+		}
+	}
+}
+
+async function onDeleteAgentFile(file: AgentFileDto) {
+	if (deletingAgentFileId.value !== null) return;
+
+	const confirmed = await openAgentConfirmationModal({
+		title: locale.baseText('agents.builder.files.deleteModal.title', {
+			interpolate: { name: file.fileName },
+		}),
+		description: locale.baseText('agents.builder.files.deleteModal.description', {
+			interpolate: { name: file.fileName },
+		}),
+		confirmButtonText: locale.baseText('agents.builder.files.deleteModal.button.delete'),
+		cancelButtonText: locale.baseText('generic.cancel'),
+	});
+	if (confirmed !== MODAL_CONFIRM) return;
+
+	const targetProjectId = projectId.value;
+	const targetAgentId = agentId.value;
+	deletingAgentFileId.value = file.id;
+	try {
+		await deleteAgentFile(rootStore.restApiContext, targetProjectId, targetAgentId, file.id);
+		if (agentId.value !== targetAgentId || projectId.value !== targetProjectId) return;
+		agentFiles.value = agentFiles.value.filter((agentFile) => agentFile.id !== file.id);
+		showMessage({
+			title: locale.baseText('agents.builder.files.deleted'),
+			type: 'success',
+		});
+	} catch (error) {
+		showError(error, locale.baseText('agents.builder.files.deleteError'));
+	} finally {
+		if (deletingAgentFileId.value === file.id) {
+			deletingAgentFileId.value = null;
 		}
 	}
 }
@@ -974,6 +1011,7 @@ function onSwitchAgent(nextAgentId: string) {
 				:agent-files="agentFiles"
 				:agent-files-loading="agentFilesLoading"
 				:agent-files-uploading="agentFilesUploading"
+				:deleting-agent-file-id="deletingAgentFileId"
 				:applied-skills="appliedSkills"
 				:connected-triggers="connectedTriggers"
 				:is-build-chat-streaming="isBuildChatStreaming"
@@ -988,6 +1026,7 @@ function onSwitchAgent(nextAgentId: string) {
 				@add-skill="onOpenAddSkillModal"
 				@add-trigger="onOpenAddTriggerModal"
 				@upload-files="onUploadAgentFiles"
+				@delete-file="onDeleteAgentFile"
 				@remove-tool="onRemoveTool"
 				@remove-skill="onRemoveSkill"
 				@update:connected-triggers="onConnectedTriggersUpdate"

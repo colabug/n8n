@@ -104,6 +104,19 @@ export const uploadAgentFiles = async (
 	);
 };
 
+export const deleteAgentFile = async (
+	context: IRestApiContext,
+	projectId: string,
+	agentId: string,
+	fileId: string,
+): Promise<void> => {
+	await makeRestApiRequest(
+		context,
+		'DELETE',
+		`/projects/${projectId}/agents/v2/${agentId}/files/${fileId}`,
+	);
+};
+
 export const connectIntegration = async (
 	context: IRestApiContext,
 	projectId: string,

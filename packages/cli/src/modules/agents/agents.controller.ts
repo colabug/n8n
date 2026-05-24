@@ -426,6 +426,18 @@ export class AgentsController {
 		return await this.agentKnowledgeService.uploadFiles(agentId, req.params.projectId, files);
 	}
 
+	@Delete('/:agentId/files/:fileId')
+	@ProjectScope('agent:update')
+	async deleteFile(
+		req: AuthenticatedRequest<{ projectId: string }>,
+		_res: Response,
+		@Param('agentId') agentId: string,
+		@Param('fileId') fileId: string,
+	) {
+		await this.agentKnowledgeService.deleteFile(agentId, req.params.projectId, fileId);
+		return { success: true };
+	}
+
 	@Delete('/:agentId')
 	@ProjectScope('agent:delete')
 	async delete(

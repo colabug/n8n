@@ -15,4 +15,8 @@ export class AgentFileRepository extends Repository<AgentFile> {
 			order: { createdAt: 'DESC' },
 		});
 	}
+
+	async findByIdAndAgentId(fileId: string, agentId: string): Promise<AgentFile | null> {
+		return await this.findOne({ where: { id: fileId, agentId } });
+	}
 }
