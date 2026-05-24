@@ -57,32 +57,3 @@ export class CreateAgentFilesTable1784000000011 implements ReversibleMigration {
 		);
 	}
 }
-import type { MigrationContext, ReversibleMigration } from '../migration-types';
-
-export class CreateAgentFilesTable1784000000011 implements ReversibleMigration {
-	async up({ schemaBuilder: { createTable, column } }: MigrationContext) {
-		await createTable('agent_files')
-			.withColumns(
-				column('id')
-					.varchar(36)
-					.primary.notNull.comment('Application-generated n8n string ID, not a database UUID'),
-				column('agentId').varchar(36).notNull.comment('Agent that owns this uploaded file'),
-				column('binaryDataId').text.notNull.comment(
-					'BinaryDataService ID for the uploaded file contents',
-				),
-				column('fileName').varchar(255).notNull,
-				column('mimeType').varchar(255).notNull,
-				column('fileSizeBytes').int.notNull.comment('Uploaded file size in bytes'),
-			)
-			.withIndexOn('agentId')
-			.withForeignKey('agentId', {
-				tableName: 'agents',
-				columnName: 'id',
-				onDelete: 'CASCADE',
-			}).withTimestamps;
-	}
-
-	async down({ schemaBuilder: { dropTable } }: MigrationContext) {
-		await dropTable('agent_files');
-	}
-}

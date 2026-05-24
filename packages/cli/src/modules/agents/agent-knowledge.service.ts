@@ -3,13 +3,23 @@ import { Service } from '@n8n/di';
 import { generateNanoId, sanitizeFilename } from '@n8n/utils';
 import { BinaryDataService, FileLocation } from 'n8n-core';
 import { UnexpectedError, type IBinaryData } from 'n8n-workflow';
-import { readFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 
 import { AgentFile } from './entities/agent-file.entity';
 import { AgentFileRepository } from './repositories/agent-file.repository';
 import { AgentRepository } from './repositories/agent.repository';
+
+export interface KnowledgeWorkspaceFile {
+	id: string;
+	fileName: string;
+	mimeType: string;
+	fileSizeBytes: number;
+	relativePath: string;
+	searchable: boolean;
+}
 
 @Service()
 export class AgentKnowledgeService {
@@ -40,6 +50,40 @@ export class AgentKnowledgeService {
 
 		const files = await this.agentFileRepository.findByAgentId(agentId);
 		return files.map((file) => this.toDto(file));
+	}
+
+	async materializeWorkspace(agentId: string, projectId: string, workspaceRoot: string) {
+		await this.ensureAgentBelongsToProject(agentId, projectId);
+		await mkdir(workspaceRoot, { recursive: true });
+
+		const files = await this.agentFileRepository.findByAgentId(agentId);
+		const materializedFiles: KnowledgeWorkspaceFile[] = [];
+
+		for (const file of files) {
+			const relativePath = `${file.id}${path.extname(file.fileName)}`;
+			const targetPath = path.join(workspaceRoot, relativePath);
+			const searchable = this.isSearchable(file);
+
+			if (searchable) {
+				const buffer = await this.binaryDataService.getAsBuffer({
+					id: file.binaryDataId,
+					data: '',
+					mimeType: file.mimeType,
+				});
+				await writeFile(targetPath, buffer);
+			}
+
+			materializedFiles.push({
+				id: file.id,
+				fileName: file.fileName,
+				mimeType: file.mimeType,
+				fileSizeBytes: file.fileSizeBytes,
+				relativePath,
+				searchable,
+			});
+		}
+
+		return materializedFiles;
 	}
 
 	private async ensureAgentBelongsToProject(agentId: string, projectId: string) {
@@ -105,5 +149,10 @@ export class AgentKnowledgeService {
 			fileSizeBytes: file.fileSizeBytes,
 			createdAt: file.createdAt.toISOString(),
 		};
+	}
+
+	private isSearchable(file: AgentFile) {
+		const extension = file.fileName.split('.').pop()?.toLowerCase();
+		return extension === 'txt' || extension === 'md' || extension === 'markdown';
 	}
 }

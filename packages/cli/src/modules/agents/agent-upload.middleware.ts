@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { BadRequestError } from '@/errors/response-errors/bad-request.error';
 
-export const ALLOWED_AGENT_FILE_EXTENSIONS = ['.csv', '.md', '.markdown', '.pdf', '.txt'] as const;
+export const ALLOWED_AGENT_FILE_EXTENSIONS = ['.md', '.markdown', '.pdf', '.txt'] as const;
 
 const allowedAgentFileExtensions = new Set<string>(ALLOWED_AGENT_FILE_EXTENSIONS);
 
@@ -27,7 +27,7 @@ export class AgentUploadMiddleware {
 			limits: { fileSize: maxFileSizeBytes },
 			fileFilter: (_req, file, callback) => {
 				if (!isAllowedAgentFile(file)) {
-					callback(new BadRequestError('Only PDF, Markdown, TXT, and CSV files are allowed'));
+					callback(new BadRequestError('Only PDF, Markdown, and TXT files are allowed'));
 					return;
 				}
 
