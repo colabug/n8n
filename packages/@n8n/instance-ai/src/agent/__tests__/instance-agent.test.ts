@@ -287,15 +287,17 @@ describe('createInstanceAgent', () => {
 			},
 			loadSkill: jest.fn(),
 		};
+		const context = {
+			runLabel: 'skills-test',
+			localGatewayStatus: undefined,
+			licenseHints: undefined,
+			localMcpServer: undefined,
+			loadedSkills: undefined as Set<string> | undefined,
+		};
 
 		await createInstanceAgent({
 			modelId: 'test-model',
-			context: {
-				runLabel: 'skills-test',
-				localGatewayStatus: undefined,
-				licenseHints: undefined,
-				localMcpServer: undefined,
-			},
+			context,
 			orchestrationContext: {
 				runId: 'skills-test',
 				browserMcpConfig: undefined,
@@ -306,6 +308,7 @@ describe('createInstanceAgent', () => {
 		} as never);
 
 		expect(mockAgentInstances[0]?.skills).toHaveBeenCalledWith(runtimeSkills);
+		expect(context.loadedSkills).toEqual(new Set());
 	});
 
 	it('tracks when the orchestrator loads the workflow-builder skill', async () => {

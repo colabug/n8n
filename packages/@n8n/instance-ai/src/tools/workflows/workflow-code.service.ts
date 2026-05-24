@@ -27,6 +27,8 @@ const patchSchema = z.object({
 });
 
 const WORKFLOW_BUILDER_SKILL_ID = 'workflow-builder';
+const PLANNED_TEMPORARY_CREATE_ERROR =
+	'Do not set temporary: true for planned build tasks. Omit temporary for final planned workflow deliverables.';
 
 // Coerce JSON-stringified arrays into arrays. The model sometimes sends `patches`
 // as a JSON string because the payload contains escaped code. Leave non-strings
@@ -189,6 +191,17 @@ function blockIfWorkflowBuilderSkillMissing(
 			'Load the workflow-builder skill with load_skill before calling workflows(action="create"|"update").',
 		],
 	};
+}
+
+function blockTemporaryPlannedBuildCreate(
+	context: InstanceAiContext,
+	input: WorkflowCodeActionInput,
+): { success: false; errors: string[] } | undefined {
+	if (context.plannedBuildTask && input.action === 'create' && input.temporary === true) {
+		return { success: false, errors: [PLANNED_TEMPORARY_CREATE_ERROR] };
+	}
+
+	return undefined;
 }
 
 function isSaveAlwaysAllowed(context: InstanceAiContext, input: WorkflowCodeActionInput): boolean {
@@ -375,6 +388,16 @@ async function reportPlannedBuildSuccess({
 }): Promise<void> {
 	const plannedBuildTask = context.plannedBuildTask;
 	if (!plannedBuildTask) return;
+	const graph = await plannedBuildTask.plannedTaskService.getGraph(plannedBuildTask.threadId);
+	const task = graph?.tasks.find((t) => t.id === plannedBuildTask.taskId);
+	if (task?.status !== 'running') {
+		context.logger?.warn?.('Skipped planned build success report because task is not running', {
+			threadId: plannedBuildTask.threadId,
+			taskId: plannedBuildTask.taskId,
+			status: task?.status ?? 'not-found',
+		});
+		return;
+	}
 
 	const summary = workflowName
 		? `Workflow built: ${workflowName}.`
@@ -529,6 +552,23 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 		}
 	}
 
+	function rememberRejectedCode(workflowId: string | undefined, code: string): void {
+		if (!workflowId) rememberCode(undefined, code);
+	}
+
+	function rememberCreatedCode(workflowId: string, code: string): void {
+		lastCodeByWorkflowId.set(workflowId, code);
+		lastCreateCode = null;
+	}
+
+	function invalidate(workflowId?: string): void {
+		if (workflowId) {
+			lastCodeByWorkflowId.delete(workflowId);
+			return;
+		}
+		lastCreateCode = null;
+	}
+
 	async function getPatchBaseCode(workflowId: string | undefined) {
 		if (!workflowId) return lastCreateCode;
 
@@ -546,6 +586,8 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 		if (blocked) return blocked;
 		const missingSkill = blockIfWorkflowBuilderSkillMissing(context);
 		if (missingSkill) return missingSkill;
+		const blockedTemporaryPlannedBuild = blockTemporaryPlannedBuildCreate(context, input);
+		if (blockedTemporaryPlannedBuild) return blockedTemporaryPlannedBuild;
 
 		const { code, patches, projectId, name } = input;
 		const workflowId = getWorkflowId(input);
@@ -594,7 +636,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 				nodeTypesProvider: context.nodeTypesProvider,
 			});
 		} catch (error) {
-			rememberCode(workflowId, finalCode);
+			rememberRejectedCode(workflowId, finalCode);
 			return {
 				success: false,
 				errors: [error instanceof Error ? error.message : 'Failed to parse workflow code'],
@@ -605,7 +647,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 		const { errors, informational } = partitionWarnings(result.warnings);
 
 		if (errors.length > 0) {
-			rememberCode(workflowId, finalCode);
+			rememberRejectedCode(workflowId, finalCode);
 			return {
 				success: false,
 				errors: errors.map(
@@ -695,14 +737,6 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 				};
 			} else {
 				const markAsAiTemporary = input.action === 'create' && input.temporary === true;
-				if (markAsAiTemporary && context.plannedBuildTask) {
-					return {
-						success: false,
-						errors: [
-							'Do not set temporary: true for planned build tasks. Omit temporary for final planned workflow deliverables.',
-						],
-					};
-				}
 				const created = await context.workflowService.createFromWorkflowJSON(json, {
 					...(projectId ? { projectId } : {}),
 					...(markAsAiTemporary ? { markAsAiTemporary: true } : {}),
@@ -719,7 +753,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					hasUnresolvedPlaceholders: hasPlaceholders,
 				});
 				if (markAsAiTemporary) {
-					rememberCode(created.id, finalCode);
+					rememberCreatedCode(created.id, finalCode);
 					return {
 						success: true,
 						workflowId: created.id,
@@ -735,7 +769,7 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					workflowName: json.name,
 					...saveMetadata,
 				});
-				rememberCode(created.id, finalCode);
+				rememberCreatedCode(created.id, finalCode);
 				return {
 					success: true,
 					workflowId: created.id,
@@ -759,5 +793,6 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 			await saveWorkflowCode(input, ctx),
 		update: async (input: WorkflowCodeUpdateInput, ctx: WorkflowCodeToolContext) =>
 			await saveWorkflowCode(input, ctx),
+		invalidate,
 	};
 }

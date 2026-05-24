@@ -986,6 +986,44 @@ describe('workflows tool', () => {
 				'HTTP Request': { url: 'https://example.com/api' },
 			});
 		});
+
+		it('keeps trigger-test rollback snapshots scoped to each workflow', async () => {
+			const context = createMockContext();
+			const snapshotA = {
+				name: 'Workflow A',
+				nodes: [{ name: 'A', type: 'n8n-nodes-base.manualTrigger' }],
+				connections: {},
+			};
+			(context.workflowService.getAsWorkflowJSON as jest.Mock).mockResolvedValueOnce(snapshotA);
+			(applyNodeChanges as jest.Mock).mockResolvedValueOnce({
+				applied: [],
+				failed: [{ nodeName: 'A', error: 'invalid setup' }],
+			});
+
+			const tool = createWorkflowsTool(context, 'full');
+			const failedPreTest = await executeTool(tool, { action: 'setup', workflowId: 'wf-a' }, {
+				resumeData: {
+					approved: true,
+					action: 'test-trigger',
+					testTriggerNode: 'A',
+					nodeParameters: { A: { path: 'test' } },
+				},
+			} as never);
+
+			expect(failedPreTest).toMatchObject({ success: false });
+			expect(context.workflowService.updateFromWorkflowJSON).toHaveBeenCalledWith(
+				'wf-a',
+				snapshotA,
+			);
+
+			(context.workflowService.updateFromWorkflowJSON as jest.Mock).mockClear();
+
+			await executeTool(tool, { action: 'setup', workflowId: 'wf-b' }, {
+				resumeData: { approved: false },
+			} as never);
+
+			expect(context.workflowService.updateFromWorkflowJSON).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('unpublish action', () => {

@@ -495,8 +495,13 @@ async function handleSetup(
 	context: InstanceAiContext,
 	input: Extract<Input, { action: 'setup' }>,
 	ctx: WorkflowToolContext,
-	state: { currentRequestId: string | null; preTestSnapshot: WorkflowJSON | null },
+	stateByWorkflowId: Map<
+		string,
+		{ currentRequestId: string | null; preTestSnapshot: WorkflowJSON | null }
+	>,
+	invalidateWorkflowCode: (workflowId: string) => void,
 ) {
+	const state = getSetupState(stateByWorkflowId, input.workflowId);
 	// `setup` mutates workflow nodes via applyNodeChanges (credentials and
 	// parameters are workflow-record fields), so it's gated under
 	// `updateWorkflow` like other workflow-changing actions.
@@ -530,6 +535,7 @@ async function handleSetup(
 	if (!resumeData.approved) {
 		if (state.preTestSnapshot) {
 			await context.workflowService.updateFromWorkflowJSON(input.workflowId, state.preTestSnapshot);
+			invalidateWorkflowCode(input.workflowId);
 			state.preTestSnapshot = null;
 		}
 		return {
@@ -552,6 +558,14 @@ async function handleSetup(
 		const applyFailures = preTestApply.failed;
 
 		if (applyFailures.length > 0) {
+			if (state.preTestSnapshot) {
+				await context.workflowService.updateFromWorkflowJSON(
+					input.workflowId,
+					state.preTestSnapshot,
+				);
+				invalidateWorkflowCode(input.workflowId);
+				state.preTestSnapshot = null;
+			}
 			return {
 				success: false,
 				error: `Failed to apply setup before trigger test: ${applyFailures.map((f) => `${f.nodeName}: ${f.error}`).join('; ')}`,
@@ -615,6 +629,7 @@ async function handleSetup(
 		);
 
 		const failedNodes = applyResult.failed.length > 0 ? applyResult.failed : undefined;
+		invalidateWorkflowCode(input.workflowId);
 
 		// Fetch updated workflow to include in response so the frontend can refresh the canvas
 		const updatedWorkflow = await context.workflowService.getAsWorkflowJSON(input.workflowId);
@@ -692,6 +707,21 @@ async function handleSetup(
 	}
 }
 
+function getSetupState(
+	stateByWorkflowId: Map<
+		string,
+		{ currentRequestId: string | null; preTestSnapshot: WorkflowJSON | null }
+	>,
+	workflowId: string,
+) {
+	let state = stateByWorkflowId.get(workflowId);
+	if (!state) {
+		state = { currentRequestId: null, preTestSnapshot: null };
+		stateByWorkflowId.set(workflowId, state);
+	}
+	return state;
+}
+
 async function handleValidate(
 	context: InstanceAiContext,
 	input: Extract<Input, { action: 'validate' }>,
@@ -729,6 +759,7 @@ async function handleUpdateJson(
 	context: InstanceAiContext,
 	input: Extract<Input, { action: 'update-json' }>,
 	ctx: WorkflowToolContext,
+	invalidateWorkflowCode: (workflowId: string) => void,
 ) {
 	const resumeData = ctx.resumeData;
 
@@ -760,6 +791,7 @@ async function handleUpdateJson(
 
 	try {
 		await context.workflowService.updateFromWorkflowJSON(input.workflowId, input.workflow);
+		invalidateWorkflowCode(input.workflowId);
 		return { success: true, workflowId: input.workflowId };
 	} catch (error) {
 		return {
@@ -982,6 +1014,7 @@ async function handleRestoreVersion(
 	context: InstanceAiContext,
 	input: Extract<Input, { action: 'restore-version' }>,
 	ctx: WorkflowToolContext,
+	invalidateWorkflowCode: (workflowId: string) => void,
 ) {
 	const resumeData = ctx.resumeData;
 
@@ -1014,6 +1047,7 @@ async function handleRestoreVersion(
 
 	try {
 		await context.workflowService.restoreVersion!(input.workflowId, input.versionId);
+		invalidateWorkflowCode(input.workflowId);
 		return { success: true };
 	} catch (error) {
 		return {
@@ -1105,10 +1139,10 @@ export function createWorkflowsTool(
 ) {
 	const options = normalizeOptions(optionsInput);
 	// Closure state for the setup action's suspend/resume cycle
-	const setupState: { currentRequestId: string | null; preTestSnapshot: WorkflowJSON | null } = {
-		currentRequestId: null,
-		preTestSnapshot: null,
-	};
+	const setupStateByWorkflowId = new Map<
+		string,
+		{ currentRequestId: string | null; preTestSnapshot: WorkflowJSON | null }
+	>();
 
 	const inputSchema = buildInputSchema(context, options);
 	const workflowCodeService = createWorkflowCodeService(context);
@@ -1134,7 +1168,13 @@ export function createWorkflowsTool(
 				case 'unarchive':
 					return await handleUnarchive(context, workflowInput, ctx);
 				case 'setup':
-					return await handleSetup(context, workflowInput, ctx, setupState);
+					return await handleSetup(
+						context,
+						workflowInput,
+						ctx,
+						setupStateByWorkflowId,
+						workflowCodeService.invalidate,
+					);
 				case 'validate':
 					return await handleValidate(context, workflowInput);
 				case 'create':
@@ -1142,7 +1182,12 @@ export function createWorkflowsTool(
 				case 'update':
 					return await workflowCodeService.update(workflowInput, ctx);
 				case 'update-json':
-					return await handleUpdateJson(context, workflowInput, ctx);
+					return await handleUpdateJson(
+						context,
+						workflowInput,
+						ctx,
+						workflowCodeService.invalidate,
+					);
 				case 'publish':
 					return await handlePublish(context, workflowInput, ctx);
 				case 'unpublish':
@@ -1152,7 +1197,12 @@ export function createWorkflowsTool(
 				case 'get-version':
 					return await handleGetVersion(context, workflowInput);
 				case 'restore-version':
-					return await handleRestoreVersion(context, workflowInput, ctx);
+					return await handleRestoreVersion(
+						context,
+						workflowInput,
+						ctx,
+						workflowCodeService.invalidate,
+					);
 				case 'update-version':
 					return await handleUpdateVersion(context, workflowInput, ctx);
 				default:

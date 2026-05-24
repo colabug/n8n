@@ -48,12 +48,12 @@ function trackLoadedRuntimeSkills(
 	source: RuntimeSkillSource,
 	context: CreateInstanceAgentOptions['context'],
 ): RuntimeSkillSource {
+	const loadedSkills = (context.loadedSkills ??= new Set<string>());
 	const hasWorkflowBuilder = source.registry.skills.some(
 		(skill) => skill.id === WORKFLOW_BUILDER_SKILL_ID,
 	);
 	if (!hasWorkflowBuilder) return source;
 
-	const loadedSkills = (context.loadedSkills ??= new Set<string>());
 	return {
 		...source,
 		loadSkill: async (skillId) => {

@@ -327,12 +327,38 @@ describe('workflow code create/update approval flow', () => {
 		);
 
 		expect(ctx.workflowService.createFromWorkflowJSON).not.toHaveBeenCalled();
+		expect(mockedParseAndValidate).not.toHaveBeenCalled();
 		expect(result).toEqual({
 			success: false,
 			errors: [
 				'Do not set temporary: true for planned build tasks. Omit temporary for final planned workflow deliverables.',
 			],
 		});
+	});
+
+	it('does not reuse previous create code for a later patch-mode create', async () => {
+		const ctx = makeContext({ createWorkflow: 'always_allow' });
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		await service.create({ action: 'create', code: validCode, name: 'Workflow A' }, context);
+
+		const result = await service.create(
+			{
+				action: 'create',
+				name: 'Workflow B',
+				patches: [{ old_str: 'Lead intake', new_str: 'Workflow B' }],
+			},
+			context,
+		);
+
+		expect(result).toEqual({
+			success: false,
+			errors: [
+				'Patch mode requires either previous workflow code in this turn or a workflowId to fetch from.',
+			],
+		});
+		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalledTimes(1);
 	});
 
 	it('honors scoped update approval for pre-approved checkpoint workflow repairs', async () => {
@@ -454,6 +480,9 @@ describe('workflow code create/update approval flow', () => {
 					title: 'Build workflow',
 					spec: 'Build it',
 					plannedTaskService: {
+						getGraph: jest.fn().mockResolvedValue({
+							tasks: [{ id: 'task-1', status: 'running' }],
+						}),
 						markSucceeded: jest.fn().mockRejectedValue(new Error('storage unavailable')),
 					},
 					workflowTaskService: {
@@ -494,7 +523,12 @@ describe('workflow code create/update approval flow', () => {
 					workItemId: 'wi-1',
 					title: 'Build workflow',
 					spec: 'Build it',
-					plannedTaskService: { markSucceeded },
+					plannedTaskService: {
+						getGraph: jest.fn().mockResolvedValue({
+							tasks: [{ id: 'task-1', status: 'running' }],
+						}),
+						markSucceeded,
+					},
 					workflowTaskService: { reportBuildOutcome },
 					onSavedWorkflowBuildOutcome,
 				} as unknown as InstanceAiContext['plannedBuildTask'],
@@ -532,7 +566,12 @@ describe('workflow code create/update approval flow', () => {
 					workItemId: 'wi-1',
 					title: 'Build workflow',
 					spec: 'Build it',
-					plannedTaskService: { markSucceeded },
+					plannedTaskService: {
+						getGraph: jest.fn().mockResolvedValue({
+							tasks: [{ id: 'task-1', status: 'running' }],
+						}),
+						markSucceeded,
+					},
 					workflowTaskService: { reportBuildOutcome },
 				} as unknown as InstanceAiContext['plannedBuildTask'],
 			},
@@ -549,6 +588,50 @@ describe('workflow code create/update approval flow', () => {
 		expect(ctx.workflowService.clearAiTemporary).not.toHaveBeenCalled();
 		expect(reportBuildOutcome).toHaveBeenCalled();
 		expect(markSucceeded).toHaveBeenCalled();
+	});
+
+	it('does not report planned build success when the task is no longer running', async () => {
+		const markSucceeded = jest.fn();
+		const reportBuildOutcome = jest.fn();
+		const onSavedWorkflowBuildOutcome = jest.fn();
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi-1',
+					title: 'Build workflow',
+					spec: 'Build it',
+					plannedTaskService: {
+						getGraph: jest.fn().mockResolvedValue({
+							tasks: [
+								{
+									id: 'task-1',
+									status: 'succeeded',
+									outcome: { workflowId: 'wf-a' },
+								},
+							],
+						}),
+						markSucceeded,
+					},
+					workflowTaskService: { reportBuildOutcome },
+					onSavedWorkflowBuildOutcome,
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toMatchObject({ success: true, workflowId: 'created-wf' });
+		expect(reportBuildOutcome).not.toHaveBeenCalled();
+		expect(onSavedWorkflowBuildOutcome).not.toHaveBeenCalled();
+		expect(markSucceeded).not.toHaveBeenCalled();
 	});
 
 	it('does not apply the same patch twice when approval resumes', async () => {
@@ -596,5 +679,63 @@ describe('workflow code create/update approval flow', () => {
 
 		expect(result).toMatchObject({ success: true, workflowId: 'wf-1' });
 		expect(ctx.workflowService.getAsWorkflowJSON).toHaveBeenCalledWith('wf-b');
+	});
+
+	it('does not cache invalid existing-workflow code as the next patch base', async () => {
+		const ctx = makeContext({ updateWorkflow: 'always_allow' });
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		mockedParseAndValidate.mockImplementationOnce(() => {
+			throw new Error('Failed to parse workflow code: syntax error');
+		});
+
+		await service.update(
+			{
+				action: 'update',
+				code: "export default workflow('wf-1', 'Broken intake')",
+				workflowId: 'wf-1',
+			},
+			context,
+		);
+
+		(ctx.workflowService.getAsWorkflowJSON as jest.Mock).mockClear();
+
+		const result = await service.update(
+			{
+				action: 'update',
+				workflowId: 'wf-1',
+				patches: [{ old_str: 'Lead intake', new_str: 'Recovered intake' }],
+			},
+			context,
+		);
+
+		expect(result).toMatchObject({ success: true, workflowId: 'wf-1' });
+		expect(ctx.workflowService.getAsWorkflowJSON).toHaveBeenCalledWith('wf-1');
+	});
+
+	it('refetches workflow code after an external mutation invalidates the cache', async () => {
+		const ctx = makeContext({ updateWorkflow: 'always_allow' });
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		await service.update(
+			{ action: 'update', code: validCode, workflowId: 'wf-1', name: 'Lead intake' },
+			context,
+		);
+		service.invalidate('wf-1');
+		(ctx.workflowService.getAsWorkflowJSON as jest.Mock).mockClear();
+
+		const result = await service.update(
+			{
+				action: 'update',
+				workflowId: 'wf-1',
+				patches: [{ old_str: 'Lead intake', new_str: 'Refetched intake' }],
+			},
+			context,
+		);
+
+		expect(result).toMatchObject({ success: true, workflowId: 'wf-1' });
+		expect(ctx.workflowService.getAsWorkflowJSON).toHaveBeenCalledWith('wf-1');
 	});
 });

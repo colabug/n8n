@@ -217,16 +217,20 @@ export class PlannedTaskCoordinator implements PlannedTaskService {
 		taskId: string,
 		update: { result?: string; outcome?: Record<string, unknown>; finishedAt?: number },
 	): Promise<PlannedTaskGraph | null> {
-		return await this.storage.update(threadId, (graph) =>
-			updateTaskRecord(graph, taskId, (task) => ({
+		return await this.storage.update(threadId, (graph) => {
+			const task = graph.tasks.find((t) => t.id === taskId);
+			if (!task) return null;
+			if (task.status !== 'running') return graph;
+
+			return updateTaskRecord(graph, taskId, () => ({
 				...task,
 				status: 'succeeded',
 				result: update.result ?? task.result,
 				outcome: update.outcome ?? task.outcome,
 				finishedAt: update.finishedAt ?? Date.now(),
 				error: undefined,
-			})),
-		);
+			}));
+		});
 	}
 
 	async markFailed(

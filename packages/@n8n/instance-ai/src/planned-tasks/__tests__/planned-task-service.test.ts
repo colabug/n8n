@@ -184,6 +184,33 @@ describe('PlannedTaskCoordinator', () => {
 			expect(result?.tasks[0].status).toBe('succeeded');
 			expect(result?.tasks[0].result).toBe('Built wf-1');
 		});
+
+		it('does not overwrite a task that already reached a terminal status', async () => {
+			storage.update.mockImplementation(async (_threadId, updater) => {
+				const graph = makeGraph({
+					tasks: [
+						makeTaskRecord({
+							id: 'task-1',
+							status: 'succeeded',
+							result: 'Built wf-a',
+							outcome: { workflowId: 'wf-a' },
+						}),
+					],
+				});
+				return await Promise.resolve(updater(graph));
+			});
+
+			const result = await coordinator.markSucceeded('thread-1', 'task-1', {
+				result: 'Built wf-b',
+				outcome: { workflowId: 'wf-b' },
+			});
+
+			expect(result?.tasks[0]).toMatchObject({
+				status: 'succeeded',
+				result: 'Built wf-a',
+				outcome: { workflowId: 'wf-a' },
+			});
+		});
 	});
 
 	describe('markFailed', () => {
