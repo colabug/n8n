@@ -148,6 +148,8 @@ describe('getSystemPrompt', () => {
 			expect(prompt).toContain(
 				'Existing-workflow edits and approved planned build follow-ups are direct main-agent skill flows',
 			);
+			expect(prompt).toContain('replacement for the old detached workflow-builder harness');
+			expect(prompt).toContain('trace IF/Switch/Merge wiring and data shape before saving');
 		});
 
 		it('routes non-build ops through direct tools', () => {

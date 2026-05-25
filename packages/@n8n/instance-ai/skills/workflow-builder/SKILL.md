@@ -58,6 +58,26 @@ workflow-building tools.
 7. If a mutating tool returns `denied: true`, stop immediately. Do not retry the
    mutation in the same turn; tell the user no changes were made.
 
+## Builder Discipline
+
+This skill replaces the old detached workflow-builder agent. Keep the same
+discipline even though you are using native workflow tools directly:
+
+- Research first: use suggested/search/type-definition tools and treat
+  `@builderHint` annotations as current node documentation.
+- Build complete SDK code, not fragments. The first save should be a real
+  workflow draft with all requested triggers, actions, branches, and setup
+  placeholders connected.
+- Trace the graph before saving. For IF, Switch, and Merge nodes, follow every
+  branch from producer to consumer and confirm outputs are wired by the SDK's
+  branch helpers, not by visual intuition.
+- Trace data shape, not just node existence. If a node formats `subject`,
+  `message`, `rows`, or similar fields, make sure the downstream sender/writer
+  receives that exact item shape on the same branch.
+- Patch from tool evidence. Use validation errors, build outcomes, execution
+  evidence, and verifier findings as the repair source; do not patch from a
+  vague guess when the evidence points to an input-shape or setup issue.
+
 ## Build Lifecycle
 
 The canonical workflow-building lifecycle is: save the workflow, verify it with

@@ -85,6 +85,10 @@ describe('Instance AI runtime skills', () => {
 			throw new Error('Expected load_skill to return workflow-builder content');
 		}
 		expect(loadResult.content).toContain('Do not use web search to learn workflow SDK syntax');
+		expect(loadResult.content).toContain(
+			'This skill replaces the old detached workflow-builder agent',
+		);
+		expect(loadResult.content).toContain('Trace data shape, not just node existence');
 		expect(loadResult.content).toContain('The canonical workflow-building lifecycle');
 		expect(loadResult.content).toContain('Verify with tool evidence, not builder prose');
 		expect(loadResult.content).toContain('Publish only when the user explicitly asks');
