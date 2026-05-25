@@ -111,9 +111,15 @@ async function handleKnowledgeOperation(
 		case 'search':
 			return await runSearchOperation(input, workspaceRoot, files, commandService);
 		case 'read': {
-			const file = files.find(
-				(candidate) => candidate.relativePath === input.file || candidate.id === input.file,
-			);
+			const resolvedFile = resolveFileReference(files, input.file);
+			if (resolvedFile.status !== 'found') {
+				return {
+					operation: 'read',
+					files,
+					error: resolvedFile.error,
+				};
+			}
+			const file = resolvedFile.file;
 			// Exact-read dedupe needs per-run tool state; avoid a global cache that could leak across agent executions.
 			if (file && !file.searchable) {
 				return {
@@ -125,11 +131,11 @@ async function handleKnowledgeOperation(
 			const request: InternalKnowledgeCommandRequest = input.lineRange
 				? {
 						command: 'sed',
-						file: file?.relativePath ?? input.file,
+						file: file.relativePath,
 						startLine: input.lineRange.start,
 						endLine: input.lineRange.end,
 					}
-				: { command: 'cat', file: file?.relativePath ?? input.file };
+				: { command: 'cat', file: file.relativePath };
 			const result = await runInternalCommand(commandService, workspaceRoot, request);
 			return {
 				operation: 'read',
@@ -137,7 +143,7 @@ async function handleKnowledgeOperation(
 				result: {
 					...result,
 					citation: {
-						fileName: file?.fileName ?? input.file,
+						fileName: file.fileName,
 						lineRange: input.lineRange,
 						instruction:
 							'Cite this source using only fileName and lineRange. Do not cite file ids, relative paths, binary ids, or storage ids.',
@@ -581,6 +587,25 @@ function normaliseGrepPath(filePath: string) {
 	return filePath.startsWith('./') ? filePath.slice(2) : filePath;
 }
 
+type FileReferenceResolution =
+	| { status: 'found'; file: WorkspaceFiles[number] }
+	| { status: 'missing'; error: string }
+	| { status: 'ambiguous'; error: string };
+
+function resolveFileReference(files: WorkspaceFiles, reference: string): FileReferenceResolution {
+	const matches = files.filter(
+		(file) =>
+			file.id === reference || file.relativePath === reference || file.fileName === reference,
+	);
+	if (matches.length === 1) return { status: 'found', file: matches[0] };
+	if (matches.length === 0) return { status: 'missing', error: `File "${reference}" not found` };
+
+	return {
+		status: 'ambiguous',
+		error: `File "${reference}" matches multiple uploaded files. Use the file id or relative path instead.`,
+	};
+}
+
 function getRequiredFileReferences(input: ParsedSearchKnowledgeInput) {
 	if (input.operation === 'search') return input.files;
 	if (input.operation === 'read' || input.operation === 'csv_query') return [input.file];
@@ -592,12 +617,11 @@ async function queryCsv(
 	files: Awaited<ReturnType<AgentKnowledgeService['materializeWorkspace']>>,
 	input: CsvQueryInput,
 ) {
-	const file = files.find(
-		(candidate) => candidate.relativePath === input.file || candidate.id === input.file,
-	);
-	if (!file) {
-		throw new Error(`File "${input.file}" not found`);
+	const resolvedFile = resolveFileReference(files, input.file);
+	if (resolvedFile.status !== 'found') {
+		throw new Error(resolvedFile.error);
 	}
+	const { file } = resolvedFile;
 	if (!file.searchable || !isCsvFile(file)) {
 		throw new Error(`File "${file.fileName}" is not queryable as CSV.`);
 	}
@@ -689,7 +713,8 @@ function mapFileReferences(
 	files: Awaited<ReturnType<AgentKnowledgeService['materializeWorkspace']>>,
 	requestedFiles?: string[],
 ) {
-	return requestedFiles?.map(
-		(file) => files.find((candidate) => candidate.id === file)?.relativePath ?? file,
-	);
+	return requestedFiles?.map((file) => {
+		const resolvedFile = resolveFileReference(files, file);
+		return resolvedFile.status === 'found' ? resolvedFile.file.relativePath : file;
+	});
 }

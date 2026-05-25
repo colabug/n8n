@@ -135,6 +135,60 @@ describe('search_knowledge tool', () => {
 		expect(stdout).not.toContain('needle');
 	});
 
+	it('accepts a singular file reference for search', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1-notes.txt'), 'needle\n');
+				await writeFile(path.join(workspaceRoot, 'file-2-notes.txt'), 'needle\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'notes.txt',
+						mimeType: 'text/plain',
+						fileSizeBytes: 7,
+						relativePath: 'file-1-notes.txt',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'other-notes.txt',
+						mimeType: 'text/plain',
+						fileSizeBytes: 7,
+						relativePath: 'file-2-notes.txt',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		const result = await tool.handler?.(
+			{ operation: 'search', query: 'needle', file: 'notes.txt' },
+			{} as never,
+		);
+
+		expect(result).toMatchObject({
+			operation: 'search',
+			search: {
+				files: [expect.objectContaining({ fileName: 'notes.txt' })],
+			},
+		});
+		expect((result as { search: { files: unknown[] } }).search.files).toHaveLength(1);
+		expect(knowledgeService.materializeWorkspace).toHaveBeenCalledWith(
+			agentId,
+			projectId,
+			expect.any(String),
+			{ fileReferences: ['notes.txt'] },
+		);
+	});
+
 	it('limits content results with head_limit', async () => {
 		knowledgeService.materializeWorkspace.mockImplementation(
 			async (_agentId, _projectId, workspaceRoot) => {
@@ -919,6 +973,51 @@ describe('search_knowledge tool', () => {
 		);
 	});
 
+	it('reads materialized files by display file name', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'book text\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'Moby Dick.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.({ operation: 'read', file: 'Moby Dick.md' }, {} as never),
+		).resolves.toMatchObject({
+			operation: 'read',
+			result: {
+				command: 'cat',
+				stdout: 'book text\n',
+				citation: {
+					fileName: 'Moby Dick.md',
+				},
+			},
+		});
+		expect(knowledgeService.materializeWorkspace).toHaveBeenCalledWith(
+			agentId,
+			projectId,
+			expect.any(String),
+			{ fileReferences: ['Moby Dick.md'] },
+		);
+	});
+
 	it('queries CSV rows with selected columns in one operation', async () => {
 		knowledgeService.materializeWorkspace.mockImplementation(
 			async (_agentId, _projectId, workspaceRoot) => {
@@ -979,6 +1078,49 @@ describe('search_knowledge tool', () => {
 				],
 				rowCount: 2,
 				truncated: false,
+			},
+		});
+	});
+
+	it('queries CSV rows by display file name', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.csv'), 'country,year\nGermany,2022\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'owid-co2-data.csv',
+						mimeType: 'text/csv',
+						fileSizeBytes: 26,
+						relativePath: 'file-1.csv',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{
+					operation: 'csv_query',
+					file: 'owid-co2-data.csv',
+					select: ['country', 'year'],
+				},
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			operation: 'csv_query',
+			csv: {
+				fileName: 'owid-co2-data.csv',
+				rows: [['Germany', '2022']],
 			},
 		});
 	});

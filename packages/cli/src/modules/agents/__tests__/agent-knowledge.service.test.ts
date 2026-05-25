@@ -492,4 +492,43 @@ describe('AgentKnowledgeService', () => {
 			await rm(workspaceRoot, { recursive: true, force: true });
 		}
 	});
+
+	it('materializes files requested by display file name', async () => {
+		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
+		agentFileRepository.findByAgentId.mockResolvedValue([
+			{
+				id: 'file-1',
+				agentId,
+				binaryDataId: 'binary-1',
+				fileName: 'data.csv',
+				mimeType: 'text/csv',
+				fileSizeBytes: 17,
+				createdAt: new Date('2026-05-24T12:00:00.000Z'),
+			},
+			{
+				id: 'file-2',
+				agentId,
+				binaryDataId: 'binary-2',
+				fileName: 'notes.txt',
+				mimeType: 'text/plain',
+				fileSizeBytes: 10,
+				createdAt: new Date('2026-05-24T12:00:00.000Z'),
+			},
+		] as never);
+		binaryDataService.getAsBuffer.mockResolvedValue(Buffer.from('name,age\nAlice,30\n'));
+		const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-service-'));
+		try {
+			const files = await service.materializeWorkspace(agentId, projectId, workspaceRoot, {
+				fileReferences: ['data.csv'],
+			});
+
+			expect(files).toEqual([expect.objectContaining({ id: 'file-1', fileName: 'data.csv' })]);
+			expect(binaryDataService.getAsBuffer).toHaveBeenCalledTimes(1);
+			expect(binaryDataService.getAsBuffer).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'binary-1' }),
+			);
+		} finally {
+			await rm(workspaceRoot, { recursive: true, force: true });
+		}
+	});
 });

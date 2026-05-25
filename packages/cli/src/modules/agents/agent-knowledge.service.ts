@@ -228,7 +228,10 @@ export class AgentKnowledgeService {
 
 		const requested = new Set(fileReferences);
 		return files.filter(
-			(file) => requested.has(file.id) || requested.has(this.getWorkspaceRelativePath(file)),
+			(file) =>
+				requested.has(file.id) ||
+				requested.has(this.getWorkspaceRelativePath(file)) ||
+				requested.has(file.fileName),
 		);
 	}
 

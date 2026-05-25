@@ -45,6 +45,7 @@ const searchInputSchema = z
 		caseInsensitive: z.boolean().optional(),
 		fixedStrings: z.boolean().optional(),
 		context: z.number().int().min(0).max(5).optional(),
+		file: z.string().min(1).optional(),
 		files: z.array(z.string()).max(10).optional(),
 		offset: z.number().int().min(0).default(0),
 		head_limit: z.number().int().min(0).default(DEFAULT_SEARCH_HEAD_LIMIT),
@@ -134,7 +135,7 @@ export const searchKnowledgeInputSchema: JSONSchema7 = {
 			maxItems: 10,
 			items: { type: 'string' },
 			description:
-				'For operation=search only: optional file ids or relative paths to search. These are tool handles only; do not cite them to users.',
+				'For operation=search only: optional file ids, relative paths, or exact file names to search. These are tool handles only; do not cite them to users.',
 		},
 		offset: {
 			type: 'integer',
@@ -153,7 +154,7 @@ export const searchKnowledgeInputSchema: JSONSchema7 = {
 			type: 'string',
 			minLength: 1,
 			description:
-				'For operation=read or csv_query: file id or relative path. This is a tool handle only; cite the returned fileName and lineRange instead.',
+				'For operation=read or csv_query: file id, relative path, or exact file name. For operation=search: alias for a single files entry. This is a tool handle only; cite the returned fileName and lineRange instead.',
 		},
 		lineRange: {
 			type: 'object',
@@ -296,7 +297,14 @@ export type InternalKnowledgeCommandResult = Omit<AgentKnowledgeCommandResult, '
 };
 
 export function parseSearchKnowledgeInput(input: unknown): ParsedSearchKnowledgeInput {
-	return searchKnowledgeParsingSchema.parse(input);
+	const parsed = searchKnowledgeParsingSchema.parse(input);
+	if (parsed.operation !== 'search' || parsed.file === undefined) return parsed;
+
+	const { file, ...searchInput } = parsed;
+	return {
+		...searchInput,
+		files: Array.from(new Set([file, ...(parsed.files ?? [])])),
+	};
 }
 
 export function getSearchKnowledgeOperation(input: unknown): SearchKnowledgeOutput['operation'] {
