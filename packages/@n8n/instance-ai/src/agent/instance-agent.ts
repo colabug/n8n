@@ -21,8 +21,6 @@ import type { CreateInstanceAgentOptions, InstanceAiToolRegistry } from '../type
 
 // ── Agent factory ───────────────────────────────────────────────────────────
 
-const WORKFLOW_BUILDER_SKILL_ID = 'workflow-builder';
-
 function splitDeferredTools(
 	tools: InstanceAiToolRegistry,
 	options: { isCheckpointFollowUp?: boolean } = {},
@@ -49,10 +47,6 @@ function trackLoadedRuntimeSkills(
 	context: CreateInstanceAgentOptions['context'],
 ): RuntimeSkillSource {
 	const loadedSkills = (context.loadedSkills ??= new Set<string>());
-	const hasWorkflowBuilder = source.registry.skills.some(
-		(skill) => skill.id === WORKFLOW_BUILDER_SKILL_ID,
-	);
-	if (!hasWorkflowBuilder) return source;
 
 	return {
 		...source,

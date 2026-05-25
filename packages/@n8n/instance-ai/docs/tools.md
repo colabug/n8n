@@ -89,24 +89,6 @@ tracking during synchronous work.
 
 **Behavior**: Saves to storage, publishes `tasks-update` event for live UI refresh.
 
-### `build-workflow`
-
-Build or update a workflow from TypeScript SDK code in the main orchestrator
-after loading the `workflow-builder` skill.
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `code` | string | no | Full TypeScript workflow code for create/update |
-| `patches` | array | no | Targeted string replacements for an existing workflow |
-| `workflowId` | string | no | Existing workflow ID to modify |
-| `name` | string | no | Workflow name, required for new workflows if code omits it |
-
-**Returns**: `{ success: boolean, workflowId?: string, errors?: string[], warnings?: string[] }`
-
-**Behavior**: validates SDK code, resolves credentials, preserves webhook IDs,
-gates create/update with HITL, saves the workflow, and records planned-task
-outcomes when called from an approved `build-workflow` task.
-
 ### `cancel-background-task` *(conditional)*
 
 Cancel a running background task by its ID.
@@ -202,11 +184,14 @@ are configured.
 
 ---
 
-## Workflow Tools (9–13)
+## `workflows` Tool Actions (13–17)
 
-Core count is 9; up to 4 more are conditionally registered based on license.
+The workflow surface is one consolidated `workflows` tool with an `action`
+parameter. The full native surface has 13 core actions; the orchestrator hides
+internal JSON actions and only enables `create` for approved planned builds. Up
+to 4 more actions are conditionally registered based on license.
 
-### `list-workflows`
+### `workflows(action="list")`
 
 List workflows accessible to the current user.
 
@@ -220,7 +205,7 @@ List workflows accessible to the current user.
 
 `activeVersionId` is `null` when the workflow is unpublished.
 
-### `get-workflow`
+### `workflows(action="get")`
 
 Get full workflow definition including nodes, connections, and settings.
 
@@ -232,7 +217,18 @@ Get full workflow definition including nodes, connections, and settings.
 
 `activeVersionId` is `null` when the workflow is unpublished.
 
-### `get-workflow-as-code`
+### `workflows(action="get-json")` *(internal/full surface only)*
+
+Get full WorkflowJSON for safe read-modify-update flows that must work below
+the SDK-code layer.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workflowId` | string | yes | Workflow ID |
+
+**Returns**: full WorkflowJSON.
+
+### `workflows(action="get-as-code")`
 
 Get a workflow as TypeScript SDK code. Used by the `workflow-builder` skill to
 load an existing workflow for modification.
@@ -243,23 +239,41 @@ load an existing workflow for modification.
 
 **Returns**: TypeScript code string representing the workflow.
 
-### `build-workflow`
+### `workflows(action="create"|"update")`
 
-Submit workflow code (TypeScript SDK) for parsing, validation, and saving. Two
-modes: full code submission or `str_replace` patches against the last-submitted
-code.
+Submit workflow code (TypeScript SDK) or targeted `str_replace` patches through
+the consolidated `workflows` tool after loading the `workflow-builder` skill.
+`create` is only available for approved planned build follow-ups; existing
+workflow edits use `update`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `code` | string | conditional | Full TypeScript SDK code |
-| `patches` | array | conditional | `str_replace` patches against last-submitted code |
+| `patches` | array | conditional | `str_replace` patches against the current or cached workflow code |
+| `workflowId` | string | update only | Existing workflow ID to modify |
+| `name` | string | no | Workflow name, required for new workflows if code omits it |
+| `temporary` | boolean | no | `create` only; true for scratch workflows that should be archived automatically |
 
-**Returns**: `{ workflowId, nodes, errors? }`
+**Returns**: `{ success: boolean, workflowId?: string, errors?: string[], warnings?: string[] }`
 
-**Behavior**: Validates TypeScript SDK code via `parseAndValidate()`, generates
-workflow JSON, applies layout engine positioning, resolves credentials.
+**Behavior**: validates SDK code, resolves credentials, preserves webhook IDs,
+gates create/update with HITL, saves the workflow, and records planned-task
+outcomes when called from an approved `build-workflow` task.
 
-### `delete-workflow`
+### `workflows(action="update-json")` *(internal/full surface only)*
+
+Save a complete modified WorkflowJSON back to an existing workflow. This is
+reserved for eval/setup flows that already have separate approval; normal
+builder edits should use `update` with SDK code or targeted patches.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workflowId` | string | yes | Existing workflow ID to modify |
+| `workflow` | object | yes | Complete replacement WorkflowJSON |
+
+**Returns**: `{ success: boolean, workflowId: string }`
+
+### `workflows(action="delete")`
 
 Archive a workflow (soft delete, deactivates if needed). This is reversible
 with `unarchive-workflow`.
@@ -270,7 +284,7 @@ with `unarchive-workflow`.
 
 **Returns**: `{ success: boolean }`
 
-### `unarchive-workflow`
+### `workflows(action="unarchive")`
 
 Restore an archived workflow without publishing it.
 
@@ -280,7 +294,7 @@ Restore an archived workflow without publishing it.
 
 **Returns**: `{ success: boolean }`
 
-### `setup-workflow`
+### `workflows(action="setup")`
 
 Open the UI for per-node credential and parameter setup. Uses a suspend/resume
 state machine where each node triggers a HITL confirmation for the user to
@@ -292,7 +306,20 @@ configure it interactively.
 
 **Returns**: `{ completedNodes, skippedNodes, failedNodes }`
 
-### `publish-workflow`
+### `workflows(action="validate")`
+
+Return the per-node configuration issues shown as canvas warnings, including
+missing credentials and parameter validation errors. Static check only; it does
+not execute the workflow.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workflowId` | string | yes | Workflow ID |
+| `ignoreIssues` | array | no | Issue categories to suppress |
+
+**Returns**: `{ valid: boolean, issues: [...] }`
+
+### `workflows(action="publish")`
 
 Publish a workflow version to production. Makes it active — it will run on triggers.
 
@@ -303,7 +330,7 @@ Publish a workflow version to production. Makes it active — it will run on tri
 
 **Returns**: `{ success: boolean, activeVersionId?: string }`
 
-### `unpublish-workflow`
+### `workflows(action="unpublish")`
 
 Stop a workflow from running in production. The draft is preserved.
 
@@ -313,7 +340,7 @@ Stop a workflow from running in production. The draft is preserved.
 
 **Returns**: `{ success: boolean }`
 
-### `list-workflow-versions` *(conditional — requires license)*
+### `workflows(action="list-versions")` *(conditional — requires license)*
 
 List version history for a workflow (metadata only).
 
@@ -325,7 +352,7 @@ List version history for a workflow (metadata only).
 
 **Returns**: `{ versions: [{ versionId, name, description, authors, createdAt, autosaved, isActive, isCurrentDraft }] }`
 
-### `get-workflow-version` *(conditional — requires license)*
+### `workflows(action="get-version")` *(conditional — requires license)*
 
 Get full details of a specific workflow version including nodes and connections.
 
@@ -336,7 +363,7 @@ Get full details of a specific workflow version including nodes and connections.
 
 **Returns**: `{ versionId, name, description, authors, nodes, connections, ... }`
 
-### `restore-workflow-version` *(conditional — requires license)*
+### `workflows(action="restore-version")` *(conditional — requires license)*
 
 Restore a workflow to a previous version (overwrites current draft). HITL
 approval required.
@@ -348,7 +375,7 @@ approval required.
 
 **Returns**: `{ success: boolean }`
 
-### `update-workflow-version` *(conditional — requires `feat:namedVersions` license)*
+### `workflows(action="update-version")` *(conditional — requires `feat:namedVersions` license)*
 
 Update a version's name or description.
 

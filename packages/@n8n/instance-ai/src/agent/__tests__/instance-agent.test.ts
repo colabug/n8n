@@ -285,7 +285,15 @@ describe('createInstanceAgent', () => {
 					},
 				],
 			},
-			loadSkill: jest.fn(),
+			loadSkill: jest.fn(
+				async (skillId: string) =>
+					await Promise.resolve({
+						id: skillId,
+						name: skillId,
+						description: 'Loaded skill.',
+						instructions: 'Loaded skill.',
+					}),
+			),
 		};
 		const context = {
 			runLabel: 'skills-test',
@@ -307,8 +315,17 @@ describe('createInstanceAgent', () => {
 			mcpManager: createMcpManagerStub(),
 		} as never);
 
-		expect(mockAgentInstances[0]?.skills).toHaveBeenCalledWith(runtimeSkills);
-		expect(context.loadedSkills).toEqual(new Set());
+		const skillsCalls = (mockAgentInstances[0]?.skills.mock.calls ?? []) as unknown as Array<
+			[RuntimeSkillSource]
+		>;
+		const trackedRuntimeSkills = skillsCalls[0]?.[0];
+		if (!trackedRuntimeSkills) throw new Error('Expected runtime skills to be attached');
+
+		expect(trackedRuntimeSkills).not.toBe(runtimeSkills);
+		expect(trackedRuntimeSkills.registry).toBe(runtimeSkills.registry);
+		await trackedRuntimeSkills.loadSkill('data-table-manager');
+
+		expect(context.loadedSkills).toEqual(new Set(['data-table-manager']));
 	});
 
 	it('tracks when the orchestrator loads the workflow-builder skill', async () => {

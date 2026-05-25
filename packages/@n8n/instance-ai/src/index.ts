@@ -342,6 +342,7 @@ export { WorkflowLoopRuntime } from './workflow-loop/runtime';
 export { PlannedTaskCoordinator } from './planned-tasks/planned-task-service';
 export {
 	applyPlannedTaskPermissions,
+	getPlannedTaskPermissionOverrides,
 	PLANNED_TASK_PERMISSION_OVERRIDES,
 } from './planned-tasks/planned-task-permissions';
 export type {

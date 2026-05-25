@@ -8,6 +8,34 @@ const WORKFLOW_BUILDER_SKILL = readFileSync(
 	join(__dirname, '..', '..', '..', '..', 'skills', 'workflow-builder', 'SKILL.md'),
 	'utf8',
 );
+const WORKFLOW_BUILDER_SDK_RULES = readFileSync(
+	join(
+		__dirname,
+		'..',
+		'..',
+		'..',
+		'..',
+		'skills',
+		'workflow-builder',
+		'references',
+		'sdk-rules.md',
+	),
+	'utf8',
+);
+const WORKFLOW_BUILDER_LIFECYCLE = readFileSync(
+	join(
+		__dirname,
+		'..',
+		'..',
+		'..',
+		'..',
+		'skills',
+		'workflow-builder',
+		'references',
+		'build-lifecycle.md',
+	),
+	'utf8',
+);
 
 describe('credential guardrail prompts', () => {
 	it('does not frame API keys as acceptable ask-user inputs in the workflow-builder skill', () => {
@@ -25,11 +53,11 @@ describe('credential guardrail prompts', () => {
 	});
 
 	it('keeps inbound trigger authentication disabled unless explicitly requested', () => {
-		expect(WORKFLOW_BUILDER_SKILL).toContain(
+		expect(WORKFLOW_BUILDER_SDK_RULES).toContain(
 			'The credential-selection guidance above applies to outbound service calls.',
 		);
-		expect(WORKFLOW_BUILDER_SKILL).toContain('keep authentication at its');
-		expect(WORKFLOW_BUILDER_SKILL).toContain(
+		expect(WORKFLOW_BUILDER_SDK_RULES).toContain('keep authentication at its');
+		expect(WORKFLOW_BUILDER_SDK_RULES).toContain(
 			'default `none` unless the user explicitly asks to authenticate inbound traffic',
 		);
 	});
@@ -71,19 +99,19 @@ describe('credential guardrail prompts', () => {
 	});
 
 	it('tells the builder to wrap ambiguous resource matches with placeholder()', () => {
-		expect(WORKFLOW_BUILDER_SKILL).toContain('Resource IDs with more than one candidate');
-		expect(WORKFLOW_BUILDER_SKILL).toContain('If `explore-resources` returns more');
-		expect(WORKFLOW_BUILDER_SKILL).toContain("`placeholder('Select <resource>')`");
+		expect(WORKFLOW_BUILDER_SDK_RULES).toContain('Resource IDs with more than one candidate');
+		expect(WORKFLOW_BUILDER_SDK_RULES).toContain('If `explore-resources` returns more');
+		expect(WORKFLOW_BUILDER_SDK_RULES).toContain("`placeholder('Select <resource>')`");
 	});
 
 	it('keeps builder guidance grounded in the inline setup card', () => {
-		expect(WORKFLOW_BUILDER_SKILL).toContain('inline setup card');
-		expect(WORKFLOW_BUILDER_SKILL).toContain('the AI Assistant panel');
-		expect(WORKFLOW_BUILDER_SKILL).not.toMatch(/setup wizard/i);
+		expect(WORKFLOW_BUILDER_LIFECYCLE).toContain('inline setup card');
+		expect(WORKFLOW_BUILDER_LIFECYCLE).toContain('the AI Assistant panel');
+		expect(WORKFLOW_BUILDER_LIFECYCLE).not.toMatch(/setup wizard/i);
 	});
 
 	it('does not inline bulky static node guides in the workflow-builder skill', () => {
-		expect(WORKFLOW_BUILDER_SKILL).toContain('Node Configuration Safety Rules');
+		expect(WORKFLOW_BUILDER_SDK_RULES).toContain('Node Configuration Safety Rules');
 		expect(WORKFLOW_BUILDER_SKILL).not.toContain('nodes(action="guide")');
 		expect(WORKFLOW_BUILDER_SKILL).not.toContain(
 			'### Set Node Updates - Comprehensive Type Handling Guide',

@@ -52,7 +52,7 @@ import {
 	PlannedTaskStorage,
 	TerminalOutcomeStorage,
 	applyPlannedTaskPermissions,
-	PLANNED_TASK_PERMISSION_OVERRIDES,
+	getPlannedTaskPermissionOverrides,
 	releaseTraceClient,
 	submitLangsmithUserFeedback,
 	resumeAgentRun,
@@ -3253,7 +3253,7 @@ export class InstanceAiService {
 				// because createInstanceAgent builds domain tools from `context`, not `orchestrationContext.domainContext`.
 				context.permissions = {
 					...context.permissions,
-					...(PLANNED_TASK_PERMISSION_OVERRIDES.checkpoint ?? {}),
+					...(getPlannedTaskPermissionOverrides('checkpoint') ?? {}),
 				} as typeof context.permissions;
 				// Scope the runWorkflow override to the workflows this checkpoint is verifying:
 				// the orchestrator can call `executions(action="run")` on a depended-on workflow
@@ -3269,10 +3269,9 @@ export class InstanceAiService {
 			if (plannedBuild) {
 				context.permissions = {
 					...context.permissions,
-					...(PLANNED_TASK_PERMISSION_OVERRIDES['build-workflow'] ?? {}),
-					...(plannedBuild.workflowId
-						? { updateWorkflow: 'always_allow' as const }
-						: { createWorkflow: 'always_allow' as const }),
+					...(getPlannedTaskPermissionOverrides('build-workflow', {
+						plannedBuild,
+					}) ?? {}),
 				} as typeof context.permissions;
 				if (plannedBuild.workflowId) {
 					context.allowedUpdateWorkflowIds = new Set([plannedBuild.workflowId]);

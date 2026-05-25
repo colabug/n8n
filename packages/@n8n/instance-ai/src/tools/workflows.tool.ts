@@ -20,6 +20,7 @@ import {
 import { validateWorkflowConfig } from './workflows/validate-workflow.service';
 import {
 	createWorkflowCodeService,
+	workflowCodeConfirmationSuspendSchema,
 	workflowCodeCreateActionSchema,
 	workflowCodeUpdateActionSchema,
 } from './workflows/workflow-code.service';
@@ -156,13 +157,7 @@ const updateVersionAction = z.object({
 
 // ── Suspend / resume schemas ────────────────────────────────────────────────
 
-const confirmationSuspendSchema = setupSuspendSchema.pick({
-	requestId: true,
-	message: true,
-	severity: true,
-});
-
-const suspendSchema = z.union([setupSuspendSchema, confirmationSuspendSchema]);
+const suspendSchema = z.union([setupSuspendSchema, workflowCodeConfirmationSuspendSchema]);
 
 // Resume: union of standard confirmation (approved) and setup-specific fields.
 const resumeSchema = setupResumeSchema;

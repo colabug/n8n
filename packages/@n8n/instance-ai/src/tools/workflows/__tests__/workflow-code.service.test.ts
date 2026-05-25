@@ -251,9 +251,11 @@ describe('workflow code create/update approval flow', () => {
 				name: 'Lead intake',
 				nodes: [
 					{
+						id: 'webhook',
 						name: 'Webhook',
 						type: 'n8n-nodes-base.webhook',
 						typeVersion: 2,
+						position: [0, 0],
 						parameters: { path: '<__PLACEHOLDER_VALUE__webhook-path__>' },
 					},
 				],

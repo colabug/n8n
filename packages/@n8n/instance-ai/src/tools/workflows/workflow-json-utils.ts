@@ -7,6 +7,13 @@ const KNOWN_MOCKABLE_TRIGGER_TYPES = new Set([
 	'@n8n/n8n-nodes-langchain.chatTrigger',
 ]);
 
+const KNOWN_WEBHOOK_ID_TRIGGER_TYPES = new Set([
+	'n8n-nodes-base.webhook',
+	'n8n-nodes-base.formTrigger',
+	'@n8n/n8n-nodes-langchain.mcpTrigger',
+	'@n8n/n8n-nodes-langchain.chatTrigger',
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
 }
@@ -19,6 +26,10 @@ export function isTriggerNodeType(nodeType: string | undefined): boolean {
 	if (!nodeType) return false;
 	if (isMockableTriggerNodeType(nodeType)) return true;
 	return nodeType.endsWith('Trigger') || nodeType.endsWith('trigger');
+}
+
+export function needsWebhookId(nodeType: string | undefined): boolean {
+	return nodeType !== undefined && KNOWN_WEBHOOK_ID_TRIGGER_TYPES.has(nodeType);
 }
 
 function extractWorkflowIdParameter(value: unknown): string | undefined {

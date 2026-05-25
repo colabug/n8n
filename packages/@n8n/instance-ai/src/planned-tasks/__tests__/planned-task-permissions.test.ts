@@ -1,7 +1,10 @@
 import { DEFAULT_INSTANCE_AI_PERMISSIONS } from '@n8n/api-types';
 
 import type { InstanceAiContext, PlannedTaskKind } from '../../types';
-import { applyPlannedTaskPermissions } from '../planned-task-permissions';
+import {
+	applyPlannedTaskPermissions,
+	getPlannedTaskPermissionOverrides,
+} from '../planned-task-permissions';
 
 function makeContext(
 	permissionOverrides: Partial<typeof DEFAULT_INSTANCE_AI_PERMISSIONS> = {},
@@ -49,6 +52,30 @@ describe('applyPlannedTaskPermissions', () => {
 
 			expect(result.permissions?.fetchUrl).toBe('always_allow');
 			expect(result.permissions?.createDataTable).toBe('always_allow');
+		});
+
+		it('should include create permission for an approved planned create follow-up', () => {
+			const overrides = getPlannedTaskPermissionOverrides('build-workflow', {
+				plannedBuild: {},
+			});
+
+			expect(overrides).toMatchObject({
+				createWorkflow: 'always_allow',
+				createDataTable: 'always_allow',
+			});
+			expect(overrides?.updateWorkflow).toBeUndefined();
+		});
+
+		it('should include update permission for an approved planned update follow-up', () => {
+			const overrides = getPlannedTaskPermissionOverrides('build-workflow', {
+				plannedBuild: { workflowId: 'wf-1' },
+			});
+
+			expect(overrides).toMatchObject({
+				updateWorkflow: 'always_allow',
+				createDataTable: 'always_allow',
+			});
+			expect(overrides?.createWorkflow).toBeUndefined();
 		});
 	});
 

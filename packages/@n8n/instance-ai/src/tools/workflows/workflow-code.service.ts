@@ -10,7 +10,9 @@ import {
 	getReferencedWorkflowIds,
 	isMockableTriggerNodeType,
 	isTriggerNodeType,
+	needsWebhookId,
 } from './workflow-json-utils';
+import { WORKFLOW_BUILDER_SKILL_ID } from '../../skills/constants';
 import type { InstanceAiContext } from '../../types';
 import { parseAndValidate, partitionWarnings } from '../../workflow-builder';
 import { extractWorkflowCode } from '../../workflow-builder/extract-code';
@@ -26,7 +28,6 @@ const patchSchema = z.object({
 	new_str: z.string().describe('Replacement string'),
 });
 
-const WORKFLOW_BUILDER_SKILL_ID = 'workflow-builder';
 const PLANNED_TEMPORARY_CREATE_ERROR =
 	'Do not set temporary: true for planned build tasks. Omit temporary for final planned workflow deliverables.';
 
@@ -38,6 +39,7 @@ function coercePatches(value: unknown): unknown {
 	try {
 		return JSON.parse(value);
 	} catch {
+		// Keep the original string so Zod reports the array-expected error at `patches`.
 		return value;
 	}
 }
@@ -87,7 +89,7 @@ export const workflowCodeUpdateActionSchema = workflowCodeActionBaseSchema
 	})
 	.strict();
 
-const confirmationSuspendSchema = z.object({
+export const workflowCodeConfirmationSuspendSchema = z.object({
 	requestId: z.string(),
 	message: z.string(),
 	severity: z.enum(['info', 'warning', 'destructive']),
@@ -115,17 +117,25 @@ type WorkflowSaveMetadata = {
 	verificationReadiness: WorkflowVerificationReadiness;
 	setupRequirement: WorkflowSetupRequirement;
 };
-
-const WEBHOOK_NODE_TYPES = new Set([
-	'n8n-nodes-base.webhook',
-	'n8n-nodes-base.formTrigger',
-	'@n8n/n8n-nodes-langchain.mcpTrigger',
-	'@n8n/n8n-nodes-langchain.chatTrigger',
-]);
+type WorkflowOutcomeBase = Omit<
+	WorkflowBuildOutcome,
+	'workItemId' | 'taskId' | 'summary' | 'verificationReadiness' | 'setupRequirement'
+>;
+type WorkflowOutcomeBaseInput = {
+	workflowId: string;
+	triggerNodes: Array<{ nodeName: string; nodeType: string }>;
+	mockedNodeNames?: string[];
+	mockedCredentialTypes?: string[];
+	mockedCredentialsByNode?: Record<string, string[]>;
+	verificationPinData?: Record<string, Array<Record<string, unknown>>>;
+	usesWorkflowPinDataForVerification?: boolean;
+	supportingWorkflowIds?: string[];
+	hasUnresolvedPlaceholders?: boolean;
+};
 
 export interface WorkflowCodeToolContext {
 	resumeData?: ResumeData;
-	suspend: (payload: z.infer<typeof confirmationSuspendSchema>) => Promise<never>;
+	suspend: (payload: z.infer<typeof workflowCodeConfirmationSuspendSchema>) => Promise<never>;
 }
 
 async function ensureWebhookIds(
@@ -148,7 +158,7 @@ async function ensureWebhookIds(
 	}
 
 	for (const node of json.nodes ?? []) {
-		if (WEBHOOK_NODE_TYPES.has(node.type) && !node.webhookId) {
+		if (needsWebhookId(node.type) && !node.webhookId) {
 			node.webhookId = (node.name && existingWebhookIds.get(node.name)) ?? randomUUID();
 		}
 	}
@@ -204,31 +214,45 @@ function blockTemporaryPlannedBuildCreate(
 	return undefined;
 }
 
-function isSaveAlwaysAllowed(context: InstanceAiContext, input: WorkflowCodeActionInput): boolean {
-	if (context.plannedBuildTask) {
-		if (input.action === 'create') {
-			return (
-				context.permissions?.createWorkflow === 'always_allow' &&
-				context.plannedBuildTask.workflowId === undefined
-			);
-		}
-
-		if (context.permissions?.updateWorkflow !== 'always_allow') return false;
-		const allowList = context.allowedUpdateWorkflowIds;
+function isPlannedCreateAllowed(
+	context: InstanceAiContext,
+	input: WorkflowCodeActionInput,
+): boolean {
+	if (input.action === 'create') {
 		return (
-			context.plannedBuildTask.workflowId === input.workflowId &&
-			allowList?.has(input.workflowId) === true
+			context.permissions?.createWorkflow === 'always_allow' &&
+			context.plannedBuildTask?.workflowId === undefined
 		);
 	}
 
+	return false;
+}
+
+function isPlannedUpdateAllowed(
+	context: InstanceAiContext,
+	input: WorkflowCodeActionInput,
+): boolean {
+	if (input.action !== 'update') return false;
+	if (context.permissions?.updateWorkflow !== 'always_allow') return false;
+	return (
+		context.plannedBuildTask?.workflowId === input.workflowId &&
+		context.allowedUpdateWorkflowIds?.has(input.workflowId) === true
+	);
+}
+
+function isAdHocSaveAllowed(context: InstanceAiContext, input: WorkflowCodeActionInput): boolean {
 	if (input.action === 'create') {
 		return context.permissions?.createWorkflow === 'always_allow';
 	}
 
 	if (context.permissions?.updateWorkflow !== 'always_allow') return false;
-	const workflowId = getWorkflowId(input);
 	const allowList = context.allowedUpdateWorkflowIds;
-	return allowList === undefined || (workflowId !== undefined && allowList.has(workflowId));
+	return allowList === undefined || allowList.has(input.workflowId);
+}
+
+function isSaveAlwaysAllowed(context: InstanceAiContext, input: WorkflowCodeActionInput): boolean {
+	if (!context.plannedBuildTask) return isAdHocSaveAllowed(context, input);
+	return isPlannedCreateAllowed(context, input) || isPlannedUpdateAllowed(context, input);
 }
 
 async function confirmSave(
@@ -361,6 +385,76 @@ function determineDirectSetupRequirement(
 	return { status: 'not_required' };
 }
 
+function hasArrayItems(value: string[] | undefined): value is string[] {
+	return (value?.length ?? 0) > 0;
+}
+
+function hasRecordEntries<T>(value: Record<string, T> | undefined): value is Record<string, T> {
+	return Object.keys(value ?? {}).length > 0;
+}
+
+function buildWorkflowOutcomeBase({
+	workflowId,
+	triggerNodes,
+	mockedNodeNames,
+	mockedCredentialTypes,
+	mockedCredentialsByNode,
+	verificationPinData,
+	usesWorkflowPinDataForVerification,
+	supportingWorkflowIds,
+	hasUnresolvedPlaceholders,
+}: WorkflowOutcomeBaseInput): WorkflowOutcomeBase {
+	const hasMockedNodeNames = hasArrayItems(mockedNodeNames);
+	const hasMockedCredentialTypes = hasArrayItems(mockedCredentialTypes);
+	const hasMockedCredentialsByNode = hasRecordEntries(mockedCredentialsByNode);
+	const hasVerificationPinData = hasRecordEntries(verificationPinData);
+
+	return {
+		workflowId,
+		submitted: true,
+		triggerType: 'manual_or_testable',
+		triggerNodes,
+		needsUserInput: Boolean(
+			hasUnresolvedPlaceholders === true || hasMockedCredentialTypes || hasMockedCredentialsByNode,
+		),
+		...(hasMockedNodeNames ? { mockedNodeNames } : {}),
+		...(hasMockedCredentialTypes ? { mockedCredentialTypes } : {}),
+		...(hasMockedCredentialsByNode ? { mockedCredentialsByNode } : {}),
+		...(hasVerificationPinData ? { verificationPinData } : {}),
+		...(usesWorkflowPinDataForVerification ? { usesWorkflowPinDataForVerification } : {}),
+		...(supportingWorkflowIds && supportingWorkflowIds.length > 0 ? { supportingWorkflowIds } : {}),
+		...(hasUnresolvedPlaceholders !== undefined ? { hasUnresolvedPlaceholders } : {}),
+	};
+}
+
+function buildSaveMetadataFromOutcomeBase(
+	outcomeBase: WorkflowOutcomeBase,
+	referencedWorkflowIds: string[],
+): Omit<WorkflowSaveMetadata, 'verificationReadiness' | 'setupRequirement'> {
+	return {
+		triggerNodes: outcomeBase.triggerNodes ?? [],
+		...(outcomeBase.mockedNodeNames ? { mockedNodeNames: outcomeBase.mockedNodeNames } : {}),
+		...(outcomeBase.mockedCredentialTypes
+			? { mockedCredentialTypes: outcomeBase.mockedCredentialTypes }
+			: {}),
+		...(outcomeBase.mockedCredentialsByNode
+			? { mockedCredentialsByNode: outcomeBase.mockedCredentialsByNode }
+			: {}),
+		...(outcomeBase.verificationPinData
+			? { verificationPinData: outcomeBase.verificationPinData }
+			: {}),
+		...(outcomeBase.usesWorkflowPinDataForVerification
+			? { usesWorkflowPinDataForVerification: true }
+			: {}),
+		...(referencedWorkflowIds.length > 0
+			? { referencedWorkflowIds, supportingWorkflowIds: referencedWorkflowIds }
+			: {}),
+		...(outcomeBase.hasUnresolvedPlaceholders !== undefined
+			? { hasUnresolvedPlaceholders: outcomeBase.hasUnresolvedPlaceholders }
+			: {}),
+	};
+}
+
 async function reportPlannedBuildSuccess({
 	context,
 	workflowId,
@@ -402,10 +496,17 @@ async function reportPlannedBuildSuccess({
 	const summary = workflowName
 		? `Workflow built: ${workflowName}.`
 		: `Workflow built: ${workflowId}.`;
-	const hasMockedNodeNames = (mockedNodeNames?.length ?? 0) > 0;
-	const hasMockedCredentialTypes = (mockedCredentialTypes?.length ?? 0) > 0;
-	const hasMockedCredentialsByNode = Object.keys(mockedCredentialsByNode ?? {}).length > 0;
-	const hasVerificationPinData = Object.keys(verificationPinData ?? {}).length > 0;
+	const outcomeBase = buildWorkflowOutcomeBase({
+		workflowId,
+		triggerNodes,
+		mockedNodeNames,
+		mockedCredentialTypes,
+		mockedCredentialsByNode,
+		verificationPinData,
+		usesWorkflowPinDataForVerification,
+		supportingWorkflowIds,
+		hasUnresolvedPlaceholders,
+	});
 	const outcomeWithoutRouting: Omit<
 		WorkflowBuildOutcome,
 		'verificationReadiness' | 'setupRequirement'
@@ -413,20 +514,7 @@ async function reportPlannedBuildSuccess({
 		workItemId: plannedBuildTask.workItemId,
 		...(context.runId ? { runId: context.runId } : {}),
 		taskId: plannedBuildTask.taskId,
-		workflowId,
-		submitted: true,
-		triggerType: 'manual_or_testable',
-		triggerNodes,
-		needsUserInput: Boolean(
-			hasUnresolvedPlaceholders === true || hasMockedCredentialTypes || hasMockedCredentialsByNode,
-		),
-		...(hasMockedNodeNames ? { mockedNodeNames } : {}),
-		...(hasMockedCredentialTypes ? { mockedCredentialTypes } : {}),
-		...(hasMockedCredentialsByNode ? { mockedCredentialsByNode } : {}),
-		...(hasVerificationPinData ? { verificationPinData } : {}),
-		...(usesWorkflowPinDataForVerification ? { usesWorkflowPinDataForVerification } : {}),
-		...(supportingWorkflowIds && supportingWorkflowIds.length > 0 ? { supportingWorkflowIds } : {}),
-		...(hasUnresolvedPlaceholders !== undefined ? { hasUnresolvedPlaceholders } : {}),
+		...outcomeBase,
 		summary,
 	};
 	const outcome: WorkflowBuildOutcome = {
@@ -473,55 +561,22 @@ function buildWorkflowSaveMetadata({
 	referencedWorkflowIds: string[];
 	hasUnresolvedPlaceholders?: boolean;
 }): WorkflowSaveMetadata {
-	const hasMockedNodeNames = mockResult.mockedNodeNames.length > 0;
-	const hasMockedCredentialTypes = mockResult.mockedCredentialTypes.length > 0;
-	const hasMockedCredentialsByNode = Object.keys(mockResult.mockedCredentialsByNode).length > 0;
-	const hasVerificationPinData = Object.keys(mockResult.verificationPinData).length > 0;
-	const outcomeWithoutRouting: Omit<
-		WorkflowBuildOutcome,
-		'workItemId' | 'taskId' | 'summary' | 'verificationReadiness' | 'setupRequirement'
-	> = {
+	const outcomeBase = buildWorkflowOutcomeBase({
 		workflowId,
-		submitted: true,
-		triggerType: 'manual_or_testable',
 		triggerNodes,
-		needsUserInput: Boolean(
-			hasUnresolvedPlaceholders === true || hasMockedCredentialTypes || hasMockedCredentialsByNode,
-		),
-		...(hasMockedNodeNames ? { mockedNodeNames: mockResult.mockedNodeNames } : {}),
-		...(hasMockedCredentialTypes
-			? { mockedCredentialTypes: mockResult.mockedCredentialTypes }
-			: {}),
-		...(hasMockedCredentialsByNode
-			? { mockedCredentialsByNode: mockResult.mockedCredentialsByNode }
-			: {}),
-		...(hasVerificationPinData ? { verificationPinData: mockResult.verificationPinData } : {}),
-		...(mockResult.usesWorkflowPinDataForVerification
-			? { usesWorkflowPinDataForVerification: true }
-			: {}),
-		...(referencedWorkflowIds.length > 0 ? { supportingWorkflowIds: referencedWorkflowIds } : {}),
-		...(hasUnresolvedPlaceholders !== undefined ? { hasUnresolvedPlaceholders } : {}),
-	};
+		mockedNodeNames: mockResult.mockedNodeNames,
+		mockedCredentialTypes: mockResult.mockedCredentialTypes,
+		mockedCredentialsByNode: mockResult.mockedCredentialsByNode,
+		verificationPinData: mockResult.verificationPinData,
+		usesWorkflowPinDataForVerification: mockResult.usesWorkflowPinDataForVerification,
+		supportingWorkflowIds: referencedWorkflowIds,
+		hasUnresolvedPlaceholders,
+	});
 
 	return {
-		triggerNodes,
-		...(hasMockedNodeNames ? { mockedNodeNames: mockResult.mockedNodeNames } : {}),
-		...(hasMockedCredentialTypes
-			? { mockedCredentialTypes: mockResult.mockedCredentialTypes }
-			: {}),
-		...(hasMockedCredentialsByNode
-			? { mockedCredentialsByNode: mockResult.mockedCredentialsByNode }
-			: {}),
-		...(hasVerificationPinData ? { verificationPinData: mockResult.verificationPinData } : {}),
-		...(mockResult.usesWorkflowPinDataForVerification
-			? { usesWorkflowPinDataForVerification: true }
-			: {}),
-		...(referencedWorkflowIds.length > 0
-			? { referencedWorkflowIds, supportingWorkflowIds: referencedWorkflowIds }
-			: {}),
-		...(hasUnresolvedPlaceholders !== undefined ? { hasUnresolvedPlaceholders } : {}),
-		verificationReadiness: determineDirectVerificationReadiness(outcomeWithoutRouting),
-		setupRequirement: determineDirectSetupRequirement(outcomeWithoutRouting),
+		...buildSaveMetadataFromOutcomeBase(outcomeBase, referencedWorkflowIds),
+		verificationReadiness: determineDirectVerificationReadiness(outcomeBase),
+		setupRequirement: determineDirectSetupRequirement(outcomeBase),
 	};
 }
 
@@ -553,6 +608,8 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 	}
 
 	function rememberRejectedCode(workflowId: string | undefined, code: string): void {
+		// Rejected create drafts feed the next patch attempt. Rejected update drafts
+		// come from a workflow we can refetch, so do not poison that cache.
 		if (!workflowId) rememberCode(undefined, code);
 	}
 
