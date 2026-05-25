@@ -16,11 +16,17 @@ vi.mock('@n8n/i18n', () => ({
 }));
 
 vi.mock('@n8n/design-system', () => ({
+	N8nActionBox: { template: '<div />', props: ['icon', 'description'] },
 	N8nCard: { template: '<div><slot /></div>', props: ['variant'] },
 	N8nHeading: { template: '<h2><slot /></h2>', props: ['size'] },
+	N8nIcon: { template: '<span />', props: ['icon', 'size'] },
+	N8nIconButton: { template: '<button><slot /></button>' },
+	N8nLoading: { template: '<div />', props: ['rows', 'variant'] },
 	N8nRadioButtons: { template: '<div />', props: ['modelValue', 'options'] },
+	N8nScrollArea: { template: '<div><slot /></div>', props: ['maxHeight', 'type'] },
 	N8nSwitch: { template: '<button data-test-id="agent-memory-toggle"></button>' },
 	N8nText: { template: '<span><slot /></span>', props: ['tag', 'bold', 'size', 'color'] },
+	N8nTooltip: { template: '<span><slot /></span>', props: ['content', 'placement'] },
 }));
 
 async function mountColumn() {

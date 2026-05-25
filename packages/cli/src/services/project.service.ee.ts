@@ -31,6 +31,8 @@ import { UserError } from 'n8n-workflow';
 import { BadRequestError } from '@/errors/response-errors/bad-request.error';
 import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
+import { AgentKnowledgeService } from '@/modules/agents/agent-knowledge.service';
+import { AgentRepository } from '@/modules/agents/repositories/agent.repository';
 
 import { RoleService } from './role.service';
 
@@ -73,6 +75,8 @@ export class ProjectService {
 		private readonly sharedCredentialsRepository: SharedCredentialsRepository,
 		private readonly licenseState: LicenseState,
 		private readonly moduleRegistry: ModuleRegistry,
+		private readonly agentRepository: AgentRepository,
+		private readonly agentKnowledgeService: AgentKnowledgeService,
 	) {}
 
 	private get workflowService() {
@@ -206,10 +210,16 @@ export class ProjectService {
 			await secretsProvidersConnectionsService.cleanupConnectionsForProjectDeletion(project.id);
 		}
 
-		// 8. delete project
+		// 8. delete agent knowledge files before project removal cascades delete agent_files rows.
+		const agents = await this.agentRepository.findByProjectId(project.id);
+		for (const agent of agents) {
+			await this.agentKnowledgeService.deleteAllFilesForAgent(agent.id);
+		}
+
+		// 9. delete project
 		await this.projectRepository.remove(project);
 
-		// 9. delete project relations
+		// 10. delete project relations
 		// Cascading deletes take care of this.
 	}
 

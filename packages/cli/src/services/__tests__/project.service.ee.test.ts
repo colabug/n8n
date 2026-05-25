@@ -4,6 +4,7 @@ import {
 	type Project,
 	type ProjectRepository,
 	type SharedCredentialsRepository,
+	type SharedWorkflowRepository,
 	type ProjectRelationRepository,
 	type SharedCredentials,
 	PROJECT_ADMIN_ROLE,
@@ -12,32 +13,40 @@ import { PROJECT_OWNER_ROLE_SLUG } from '@n8n/permissions';
 import type { EntityManager } from '@n8n/typeorm';
 import { mock } from 'jest-mock-extended';
 
+import type { AgentKnowledgeService } from '@/modules/agents/agent-knowledge.service';
+import type { AgentRepository } from '@/modules/agents/repositories/agent.repository';
+
 import { ProjectService } from '../project.service.ee';
 import type { RoleService } from '../role.service';
 
 describe('ProjectService', () => {
 	const manager = mock<EntityManager>();
-	const projectRepository = mock<ProjectRepository>();
+	const sharedWorkflowRepository = mock<SharedWorkflowRepository>();
+	const projectRepository = mock<ProjectRepository>({ manager });
 	const projectRelationRepository = mock<ProjectRelationRepository>({ manager });
 	const roleService = mock<RoleService>();
 	const sharedCredentialsRepository = mock<SharedCredentialsRepository>();
 	const moduleRegistry = mock<ModuleRegistry>({ entities: [] });
+	const agentRepository = mock<AgentRepository>();
+	const agentKnowledgeService = mock<AgentKnowledgeService>();
 	const projectService = new ProjectService(
-		mock(),
+		sharedWorkflowRepository,
 		projectRepository,
 		projectRelationRepository,
 		roleService,
 		sharedCredentialsRepository,
 		mock(),
 		moduleRegistry,
+		agentRepository,
+		agentKnowledgeService,
 	);
+
+	beforeEach(() => {
+		jest.clearAllMocks();
+	});
 
 	describe('getAccessibleProjectsAndCount', () => {
 		const options = { skip: 0, take: 10, search: 'test' };
-
-		beforeEach(() => {
-			jest.clearAllMocks();
-		});
 
 		it('should call findAllProjectsAndCount for admin users', async () => {
 			const adminUser = {
@@ -113,7 +122,6 @@ describe('ProjectService', () => {
 		];
 
 		beforeEach(() => {
-			jest.clearAllMocks();
 			manager.transaction.mockImplementation(async (arg1: unknown, arg2?: unknown) => {
 				const runInTransaction = (arg2 ?? arg1) as (
 					entityManager: EntityManager,
@@ -199,7 +207,6 @@ describe('ProjectService', () => {
 		];
 
 		beforeEach(() => {
-			jest.clearAllMocks();
 			manager.transaction.mockImplementation(async (arg1: unknown, arg2?: unknown) => {
 				const runInTransaction = (arg2 ?? arg1) as (
 					entityManager: EntityManager,
@@ -269,6 +276,36 @@ describe('ProjectService', () => {
 				where: { id: projectId, type: 'team' },
 				relations: { projectRelations: { role: true } },
 			});
+		});
+	});
+
+	describe('deleteProject', () => {
+		it('cleans agent knowledge files before project deletion cascades agent files', async () => {
+			const user = { id: 'user-1', role: { scopes: [{ slug: 'project:delete' }] } } as any;
+			const project = mock<Project>({ id: 'project-1', type: 'team' });
+			Object.defineProperty(projectService, 'workflowService', {
+				get: async () => ({ delete: jest.fn() }),
+			});
+			Object.defineProperty(projectService, 'credentialsService', {
+				get: async () => ({ delete: jest.fn() }),
+			});
+			manager.findOne.mockResolvedValueOnce(project);
+			projectRepository.remove.mockResolvedValueOnce(project);
+			sharedWorkflowRepository.find.mockResolvedValueOnce([]);
+			sharedCredentialsRepository.find.mockResolvedValueOnce([]);
+			agentRepository.findByProjectId.mockResolvedValueOnce([
+				{ id: 'agent-1' },
+				{ id: 'agent-2' },
+			] as never);
+
+			await projectService.deleteProject(user, project.id);
+
+			expect(agentRepository.findByProjectId).toHaveBeenCalledWith(project.id);
+			expect(agentKnowledgeService.deleteAllFilesForAgent).toHaveBeenCalledWith('agent-1');
+			expect(agentKnowledgeService.deleteAllFilesForAgent).toHaveBeenCalledWith('agent-2');
+			expect(agentKnowledgeService.deleteAllFilesForAgent.mock.invocationCallOrder[1]).toBeLessThan(
+				projectRepository.remove.mock.invocationCallOrder[0],
+			);
 		});
 	});
 });
