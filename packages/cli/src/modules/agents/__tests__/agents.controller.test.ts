@@ -133,7 +133,6 @@ describe('AgentsController file uploads', () => {
 			{
 				id: 'file-1',
 				agentId: 'agent-1',
-				binaryDataId: 'binary-1',
 				fileName: 'document.txt',
 				mimeType: 'text/plain',
 				fileSizeBytes: 5,
@@ -200,7 +199,6 @@ describe('AgentsController file uploads', () => {
 			{
 				id: 'file-1',
 				agentId: 'agent-1',
-				binaryDataId: 'binary-1',
 				fileName: 'document.txt',
 				mimeType: 'text/plain',
 				fileSizeBytes: 5,

@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const COMMAND_TIMEOUT_MS = 5_000;
-export const AGENT_KNOWLEDGE_COMMANDS = ['git_grep', 'find', 'cat', 'sed', 'awk'] as const;
+export const AGENT_KNOWLEDGE_COMMANDS = ['git_grep', 'cat', 'sed'] as const;
 
 export type AgentKnowledgeCommand = (typeof AGENT_KNOWLEDGE_COMMANDS)[number];
 
@@ -14,16 +14,11 @@ export type AgentKnowledgeCommandRequest =
 	| {
 			command: 'git_grep';
 			pattern: string;
-			outputMode?: 'content' | 'files' | 'count';
+			outputMode?: 'count';
 			caseInsensitive?: boolean;
 			fixedStrings?: boolean;
 			context?: number;
 			files?: string[];
-	  }
-	| {
-			command: 'find';
-			name?: string;
-			maxDepth?: number;
 	  }
 	| {
 			command: 'cat';
@@ -34,12 +29,6 @@ export type AgentKnowledgeCommandRequest =
 			file: string;
 			startLine: number;
 			endLine: number;
-	  }
-	| {
-			command: 'awk';
-			file: string;
-			fieldSeparator?: string;
-			printFields: number[];
 	  };
 
 export interface AgentKnowledgeCommandResult {
@@ -56,8 +45,8 @@ type SafePathOptions = { allowRoot?: boolean };
 export class AgentKnowledgeCommandService {
 	async run(workspaceRoot: string, request: AgentKnowledgeCommandRequest) {
 		const root = await realpath(workspaceRoot);
-		const { executable, args, stdin } = await this.toSpawnArgs(root, request);
-		return await this.spawnCommand(root, executable, args, request.command, stdin);
+		const { executable, args } = await this.toSpawnArgs(root, request);
+		return await this.spawnCommand(root, executable, args, request.command);
 	}
 
 	async withWorkspace<T>(operation: (workspaceRoot: string) => Promise<T>) {
@@ -72,7 +61,7 @@ export class AgentKnowledgeCommandService {
 	private async toSpawnArgs(
 		root: string,
 		request: AgentKnowledgeCommandRequest,
-	): Promise<{ executable: string; args: string[]; stdin?: string }> {
+	): Promise<{ executable: string; args: string[] }> {
 		switch (request.command) {
 			case 'git_grep': {
 				if (request.pattern.trim() === '') throw new Error('Search pattern is required');
@@ -80,7 +69,6 @@ export class AgentKnowledgeCommandService {
 				if (request.caseInsensitive) args.push('-i');
 				if (request.fixedStrings) args.push('-F');
 				if (request.fixedStrings === false) args.push('-E');
-				if (request.outputMode === 'files') args.push('-l');
 				if (request.outputMode === 'count') args.push('-c');
 				if (request.context !== undefined) {
 					args.push('-C', String(Math.min(Math.max(request.context, 0), 5)));
@@ -93,16 +81,6 @@ export class AgentKnowledgeCommandService {
 				);
 				args.push(...files.map((file) => path.relative(root, file) || '.'));
 				return { executable: 'git', args };
-			}
-			case 'find': {
-				const args = ['.'];
-				if (request.maxDepth !== undefined) args.push('-maxdepth', String(request.maxDepth));
-				args.push('-type', 'f');
-				if (request.name) {
-					this.validateFindName(request.name);
-					args.push('-name', request.name);
-				}
-				return { executable: 'find', args };
 			}
 			case 'cat': {
 				const file = await this.safePath(root, request.file);
@@ -120,16 +98,6 @@ export class AgentKnowledgeCommandService {
 						path.relative(root, file),
 					],
 				};
-			}
-			case 'awk': {
-				const file = await this.safePath(root, request.file);
-				const fields = request.printFields.map((field) => `$${Math.max(1, field)}`).join(' " " ');
-				const program = `{ print ${fields} }`;
-				const args = [];
-				if (request.fieldSeparator) this.validateFieldSeparator(request.fieldSeparator);
-				if (request.fieldSeparator) args.push('-F', request.fieldSeparator);
-				args.push(program, path.relative(root, file));
-				return { executable: 'awk', args };
 			}
 		}
 	}
@@ -153,16 +121,6 @@ export class AgentKnowledgeCommandService {
 		return actual;
 	}
 
-	private validateFindName(name: string) {
-		if (this.hasControlCharacters(name) || name.includes('/') || name.includes('\\')) {
-			throw new Error('Invalid find name pattern');
-		}
-	}
-
-	private validateFieldSeparator(separator: string) {
-		if (this.hasControlCharacters(separator)) throw new Error('Invalid field separator');
-	}
-
 	private hasControlCharacters(value: string) {
 		for (const character of value) {
 			const code = character.charCodeAt(0);
@@ -176,7 +134,6 @@ export class AgentKnowledgeCommandService {
 		executable: string,
 		args: string[],
 		command: AgentKnowledgeCommand,
-		stdin?: string,
 	): Promise<AgentKnowledgeCommandResult> {
 		return await new Promise((resolve, reject) => {
 			const child = spawn(executable, args, { cwd, shell: false, env: { PATH: process.env.PATH } });
@@ -203,7 +160,6 @@ export class AgentKnowledgeCommandService {
 			child.stderr.on('data', (chunk: Buffer) => {
 				stderr = append(stderr, chunk);
 			});
-			if (stdin) child.stdin.end(stdin);
 			child.on('error', reject);
 			child.on('close', (exitCode) => {
 				clearTimeout(timer);

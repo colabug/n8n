@@ -180,6 +180,7 @@ async function runSearchOperation(
 	const primaryPattern = getPrimarySearchPattern(input);
 	const commandPattern = getSearchCommandPattern(input);
 	const commandFixedStrings = getSearchCommandFixedStrings(input);
+	let contentResult: InternalKnowledgeCommandResult | undefined;
 	const countResult = await runInternalCommand(commandService, workspaceRoot, {
 		command: 'git_grep',
 		pattern: commandPattern,
@@ -191,7 +192,7 @@ async function runSearchOperation(
 	let counts = parseCountOutput(countResult.stdout, files);
 	let multiQueryMatches: SearchMatchOutput[] | undefined;
 	if (input.queries) {
-		const contentResult = await runInternalCommand(commandService, workspaceRoot, {
+		contentResult = await runInternalCommand(commandService, workspaceRoot, {
 			command: 'git_grep',
 			pattern: commandPattern,
 			caseInsensitive: input.caseInsensitive,
@@ -256,7 +257,7 @@ async function runSearchOperation(
 		};
 	}
 
-	const contentResult = await runInternalCommand(commandService, workspaceRoot, {
+	contentResult ??= await runInternalCommand(commandService, workspaceRoot, {
 		command: 'git_grep',
 		pattern: commandPattern,
 		caseInsensitive: input.caseInsensitive,
@@ -321,7 +322,6 @@ function parseCountOutput(stdout: string, files: WorkspaceFiles) {
 					fileName: file.fileName,
 					relativePath: file.relativePath,
 					matchCount,
-					preview: [] as SearchMatchOutput[],
 				},
 			];
 		})
@@ -408,7 +408,6 @@ function buildCountsFromMatches(matches: SearchMatchOutput[], files: WorkspaceFi
 					fileName: file.fileName,
 					relativePath: file.relativePath,
 					matchCount,
-					preview: [] as SearchMatchOutput[],
 				},
 			];
 		})

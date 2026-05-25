@@ -124,7 +124,6 @@ export interface AgentPublishedVersionDto {
 export interface AgentFileDto {
 	id: string;
 	agentId: string;
-	binaryDataId: string;
 	fileName: string;
 	mimeType: string;
 	fileSizeBytes: number;

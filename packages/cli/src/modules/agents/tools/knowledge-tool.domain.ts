@@ -242,7 +242,6 @@ const searchFileOutputSchema = z.object({
 	fileName: z.string(),
 	relativePath: z.string(),
 	matchCount: z.number(),
-	preview: z.array(searchMatchOutputSchema),
 });
 
 const searchResultOutputSchema = z.object({

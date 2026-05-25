@@ -33,6 +33,8 @@ interface StoredFileContent {
 	fileExtension: string | undefined;
 }
 
+type StoredAgentFile = AgentFile & { binaryDataId: string };
+
 const MAX_AGENT_FILE_METADATA_LENGTH = 255;
 
 @Service()
@@ -50,10 +52,16 @@ export class AgentKnowledgeService {
 	): Promise<AgentFileDto[]> {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
 
-		const storedFiles: AgentFile[] = [];
+		const storedFiles: StoredAgentFile[] = [];
 
-		for (const file of files) {
-			storedFiles.push(await this.storeFile(agentId, file));
+		try {
+			for (const file of files) {
+				storedFiles.push(await this.storeFile(agentId, file));
+			}
+		} catch (error) {
+			await this.cleanupStoredFiles(storedFiles).catch(() => {});
+			await this.cleanupUploadTempFiles(files);
+			throw error;
 		}
 
 		return storedFiles.map((file) => this.toDto(file));
@@ -135,7 +143,8 @@ export class AgentKnowledgeService {
 		}
 	}
 
-	private async storeFile(agentId: string, file: Express.Multer.File): Promise<AgentFile> {
+	private async storeFile(agentId: string, file: Express.Multer.File): Promise<StoredAgentFile> {
+		let storedBinaryDataId: string | undefined;
 		try {
 			const fileId = generateNanoId();
 			const fileName = sanitizeFilename(
@@ -168,17 +177,23 @@ export class AgentKnowledgeService {
 			if (!storedBinaryData.id) {
 				throw new UnexpectedError('Agent file upload requires persisted binary data');
 			}
+			storedBinaryDataId = storedBinaryData.id;
 
 			const agentFile = this.agentFileRepository.create({
 				id: fileId,
 				agentId,
-				binaryDataId: storedBinaryData.id,
+				binaryDataId: storedBinaryDataId,
 				fileName,
 				mimeType: storedContent.mimeType,
 				fileSizeBytes: buffer.length,
 			});
 
 			return await this.agentFileRepository.save(agentFile);
+		} catch (error) {
+			if (storedBinaryDataId) {
+				await this.binaryDataService.deleteManyByBinaryDataId([storedBinaryDataId]);
+			}
+			throw error;
 		} finally {
 			if (file.path) {
 				await unlink(file.path).catch(() => {});
@@ -190,7 +205,6 @@ export class AgentKnowledgeService {
 		return {
 			id: file.id,
 			agentId: file.agentId,
-			binaryDataId: file.binaryDataId,
 			fileName: file.fileName,
 			mimeType: file.mimeType,
 			fileSizeBytes: file.fileSizeBytes,
@@ -295,5 +309,22 @@ export class AgentKnowledgeService {
 		throw new BadRequestError(
 			`${label} must be ${MAX_AGENT_FILE_METADATA_LENGTH} characters or less`,
 		);
+	}
+
+	private async cleanupStoredFiles(files: StoredAgentFile[]) {
+		if (files.length === 0) return;
+
+		await this.agentFileRepository.delete(files.map((file) => file.id));
+		await this.binaryDataService.deleteManyByBinaryDataId(files.map((file) => file.binaryDataId));
+	}
+
+	private async cleanupUploadTempFiles(files: Express.Multer.File[]) {
+		await Promise.all(files.map(async (file) => await this.cleanupUploadTempFile(file)));
+	}
+
+	private async cleanupUploadTempFile(file: Express.Multer.File) {
+		if (!file.path) return;
+
+		await unlink(file.path).catch(() => {});
 	}
 }

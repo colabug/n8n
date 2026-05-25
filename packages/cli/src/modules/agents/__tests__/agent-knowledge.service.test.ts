@@ -1,6 +1,7 @@
 import type { BinaryDataService } from 'n8n-core';
+import { generateNanoId } from '@n8n/utils';
 import { mock } from 'jest-mock-extended';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -69,6 +70,7 @@ describe('AgentKnowledgeService', () => {
 				}) as never,
 		);
 		binaryDataService.getAsBuffer.mockResolvedValue(Buffer.from('stored text'));
+		jest.mocked(generateNanoId).mockReset().mockReturnValue('file-1');
 		mockGetText.mockReset();
 		mockDestroy.mockReset().mockResolvedValue(undefined);
 
@@ -109,7 +111,6 @@ describe('AgentKnowledgeService', () => {
 			{
 				id: 'file-1',
 				agentId,
-				binaryDataId: 'binary-1',
 				fileName: 'document.txt',
 				mimeType: 'text/plain',
 				fileSizeBytes: 5,
@@ -121,7 +122,6 @@ describe('AgentKnowledgeService', () => {
 			{
 				id: 'file-1',
 				agentId,
-				binaryDataId: 'binary-1',
 				fileName: 'document.txt',
 				mimeType: 'text/plain',
 				fileSizeBytes: 5,
@@ -188,12 +188,50 @@ describe('AgentKnowledgeService', () => {
 		expect(file).toEqual({
 			id: 'file-1',
 			agentId,
-			binaryDataId: 'binary-1',
 			fileName: 'document.txt',
 			mimeType: 'text/plain',
 			fileSizeBytes: 5,
 			createdAt: '2026-05-24T12:00:00.000Z',
 		});
+	});
+
+	it('rolls back stored files and removes temp files when batch upload fails', async () => {
+		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
+		jest.mocked(generateNanoId).mockReturnValueOnce('file-1').mockReturnValueOnce('file-2');
+		binaryDataService.store
+			.mockResolvedValueOnce({ id: 'binary-1' } as never)
+			.mockRejectedValueOnce(new Error('disk full'));
+		const tempDirectory = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-upload-'));
+		const firstPath = path.join(tempDirectory, 'first-upload');
+		const secondPath = path.join(tempDirectory, 'second-upload');
+		await writeFile(firstPath, 'first');
+		await writeFile(secondPath, 'second');
+
+		try {
+			await expect(
+				service.uploadFiles(agentId, projectId, [
+					makeMulterFile({
+						originalname: 'first.txt',
+						buffer: undefined as never,
+						path: firstPath,
+						size: 5,
+					}),
+					makeMulterFile({
+						originalname: 'second.txt',
+						buffer: undefined as never,
+						path: secondPath,
+						size: 6,
+					}),
+				]),
+			).rejects.toThrow('disk full');
+
+			expect(agentFileRepository.delete).toHaveBeenCalledWith(['file-1']);
+			expect(binaryDataService.deleteManyByBinaryDataId).toHaveBeenCalledWith(['binary-1']);
+			await expect(access(firstPath)).rejects.toThrow();
+			await expect(access(secondPath)).rejects.toThrow();
+		} finally {
+			await rm(tempDirectory, { recursive: true, force: true });
+		}
 	});
 
 	it('rejects file names longer than the metadata column limit', async () => {
