@@ -28,6 +28,7 @@ const props = defineProps<{
 	disabled?: boolean;
 	readOnly?: boolean;
 	loading?: boolean;
+	expired?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -46,12 +47,12 @@ const hasFeedback = computed(() => feedback.value.trim().length > 0);
 const primaryActionLabelKey = computed(() =>
 	hasFeedback.value ? 'instanceAi.planReview.requestChanges' : 'instanceAi.planReview.approve',
 );
-const isExpanded = ref(!props.readOnly);
-const titleKey = computed(() =>
-	isResolved.value || props.readOnly
-		? 'instanceAi.planReview.titleResolved'
-		: 'instanceAi.planReview.title',
-);
+const isExpanded = ref(!props.readOnly && !props.expired);
+const titleKey = computed(() => {
+	if (props.expired) return 'instanceAi.planReview.titleExpired';
+	if (isResolved.value || props.readOnly) return 'instanceAi.planReview.titleResolved';
+	return 'instanceAi.planReview.title';
+});
 
 function getDescription(task: PlannedTaskArg): string {
 	let text = task.spec;
@@ -117,8 +118,18 @@ function handleDeny() {
 				</div>
 			</div>
 
-			<!-- Approval footer (hidden during loading and after resolution) -->
-			<ConfirmationFooter v-if="!isResolved && !props.readOnly && !props.loading" layout="column">
+			<!-- Expired hint replaces the approval footer once the underlying state is gone. -->
+			<div v-if="props.expired" :class="$style.expiredHint">
+				<N8nText size="small" color="text-light">
+					{{ i18n.baseText('instanceAi.planReview.expiredHint') }}
+				</N8nText>
+			</div>
+
+			<!-- Approval footer (hidden during loading, after resolution, or when expired) -->
+			<ConfirmationFooter
+				v-if="!isResolved && !props.readOnly && !props.loading && !props.expired"
+				layout="column"
+			>
 				<N8nInput
 					v-model="feedback"
 					type="textarea"
@@ -173,6 +184,11 @@ function handleDeny() {
 .tasks {
 	display: flex;
 	flex-direction: column;
+}
+
+.expiredHint {
+	padding: var(--spacing--xs) var(--spacing--sm);
+	border-top: var(--border);
 }
 
 .taskItem {

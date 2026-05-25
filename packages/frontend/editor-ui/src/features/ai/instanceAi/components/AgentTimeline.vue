@@ -264,6 +264,7 @@ function mapTaskItemsToPlannedTasks(tasks?: TaskList): PlannedTaskArg[] | undefi
 						[]
 					"
 					:read-only="isPlanCardReadOnly(toolCallsById[entry.toolCallId])"
+					:expired="toolCallsById[entry.toolCallId].confirmation?.expired"
 					@approve="handlePlanConfirm(toolCallsById[entry.toolCallId], true)"
 					@request-changes="(fb) => handlePlanConfirm(toolCallsById[entry.toolCallId], false, fb)"
 					@deny="handlePlanDeny(toolCallsById[entry.toolCallId])"
@@ -324,6 +325,7 @@ function mapTaskItemsToPlannedTasks(tasks?: TaskList): PlannedTaskArg[] | undefi
 					"
 					:loading="!planToolConfirmation"
 					:read-only="!!planToolConfirmation && !planToolConfirmation.isLoading"
+					:expired="planToolConfirmation?.confirmation?.expired"
 					@approve="planToolConfirmation && handlePlanConfirm(planToolConfirmation, true)"
 					@request-changes="
 						(fb) => planToolConfirmation && handlePlanConfirm(planToolConfirmation, false, fb)
