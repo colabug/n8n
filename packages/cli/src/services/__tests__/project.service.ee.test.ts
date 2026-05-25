@@ -284,15 +284,18 @@ describe('ProjectService', () => {
 			const user = { id: 'user-1', role: { scopes: [{ slug: 'project:delete' }] } } as any;
 			const project = mock<Project>({ id: 'project-1', type: 'team' });
 			Object.defineProperty(projectService, 'workflowService', {
+				configurable: true,
 				get: async () => ({ delete: jest.fn() }),
 			});
 			Object.defineProperty(projectService, 'credentialsService', {
+				configurable: true,
 				get: async () => ({ delete: jest.fn() }),
 			});
 			manager.findOne.mockResolvedValueOnce(project);
 			projectRepository.remove.mockResolvedValueOnce(project);
 			sharedWorkflowRepository.find.mockResolvedValueOnce([]);
 			sharedCredentialsRepository.find.mockResolvedValueOnce([]);
+			moduleRegistry.isActive.mockImplementation((moduleName) => moduleName === 'agents');
 			agentRepository.findByProjectId.mockResolvedValueOnce([
 				{ id: 'agent-1' },
 				{ id: 'agent-2' },
@@ -306,6 +309,30 @@ describe('ProjectService', () => {
 			expect(agentKnowledgeService.deleteAllFilesForAgent.mock.invocationCallOrder[1]).toBeLessThan(
 				projectRepository.remove.mock.invocationCallOrder[0],
 			);
+		});
+
+		it('skips agent knowledge cleanup when the agents module is inactive', async () => {
+			const user = { id: 'user-1', role: { scopes: [{ slug: 'project:delete' }] } } as any;
+			const project = mock<Project>({ id: 'project-1', type: 'team' });
+			Object.defineProperty(projectService, 'workflowService', {
+				configurable: true,
+				get: async () => ({ delete: jest.fn() }),
+			});
+			Object.defineProperty(projectService, 'credentialsService', {
+				configurable: true,
+				get: async () => ({ delete: jest.fn() }),
+			});
+			manager.findOne.mockResolvedValueOnce(project);
+			projectRepository.remove.mockResolvedValueOnce(project);
+			sharedWorkflowRepository.find.mockResolvedValueOnce([]);
+			sharedCredentialsRepository.find.mockResolvedValueOnce([]);
+			moduleRegistry.isActive.mockReturnValue(false);
+
+			await projectService.deleteProject(user, project.id);
+
+			expect(agentRepository.findByProjectId).not.toHaveBeenCalled();
+			expect(agentKnowledgeService.deleteAllFilesForAgent).not.toHaveBeenCalled();
+			expect(projectRepository.remove).toHaveBeenCalledWith(project);
 		});
 	});
 });

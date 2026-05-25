@@ -211,9 +211,11 @@ export class ProjectService {
 		}
 
 		// 8. delete agent knowledge files before project removal cascades delete agent_files rows.
-		const agents = await this.agentRepository.findByProjectId(project.id);
-		for (const agent of agents) {
-			await this.agentKnowledgeService.deleteAllFilesForAgent(agent.id);
+		if (this.moduleRegistry.isActive('agents')) {
+			const agents = await this.agentRepository.findByProjectId(project.id);
+			for (const agent of agents) {
+				await this.agentKnowledgeService.deleteAllFilesForAgent(agent.id);
+			}
 		}
 
 		// 9. delete project
