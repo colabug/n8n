@@ -14,6 +14,7 @@ export type AgentKnowledgeCommandRequest =
 	| {
 			command: 'git_grep';
 			pattern: string;
+			outputMode?: 'content' | 'files' | 'count';
 			caseInsensitive?: boolean;
 			fixedStrings?: boolean;
 			context?: number;
@@ -78,6 +79,9 @@ export class AgentKnowledgeCommandService {
 				const args = ['grep', '--no-index', '-n', '-I'];
 				if (request.caseInsensitive) args.push('-i');
 				if (request.fixedStrings) args.push('-F');
+				if (request.fixedStrings === false) args.push('-E');
+				if (request.outputMode === 'files') args.push('-l');
+				if (request.outputMode === 'count') args.push('-c');
 				if (request.context !== undefined) {
 					args.push('-C', String(Math.min(Math.max(request.context, 0), 5)));
 				}

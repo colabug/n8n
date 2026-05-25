@@ -45,6 +45,19 @@ describe('search_knowledge tool', () => {
 		});
 		expect((tool.inputSchema as JSONSchema7).properties).not.toHaveProperty('request');
 		expect(tool.inputSchema).not.toHaveProperty('oneOf');
+		const properties = (tool.inputSchema as JSONSchema7).properties as Record<
+			string,
+			{ default?: unknown; description?: string }
+		>;
+		expect(properties.output_mode.default).toBe('files_with_matches');
+		expect(properties.head_limit.default).toBe(250);
+		expect(properties.match_mode.default).toBe('any');
+		expect(String(properties.queries.description)).toContain('multiple literal search terms');
+		expect((tool.inputSchema as JSONSchema7).properties).not.toHaveProperty('mode');
+		expect((tool.inputSchema as JSONSchema7).properties).not.toHaveProperty('maxResults');
+		expect(String(properties.file.description)).toContain(
+			'cite the returned fileName and lineRange instead',
+		);
 	});
 
 	it('lists uploaded knowledge files', async () => {
@@ -111,10 +124,670 @@ describe('search_knowledge tool', () => {
 				command: 'git_grep',
 				exitCode: 0,
 			},
+			search: {
+				mode: 'files_with_matches',
+				files: [expect.objectContaining({ relativePath: 'file-1-notes.txt' })],
+				matches: [],
+			},
 		});
-		expect((result as { result: { stdout: string } }).result.stdout).toContain(
-			'file-1-notes.txt:2:needle',
+		const stdout = (result as { result: { stdout: string } }).result.stdout;
+		expect(stdout).toContain('notes.txt');
+		expect(stdout).not.toContain('needle');
+	});
+
+	it('limits content results with head_limit', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				const repeatedNeedles = Array.from(
+					{ length: 12 },
+					(_, index) => `needle ${index + 1}`,
+				).join('\n');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), repeatedNeedles);
+				await writeFile(path.join(workspaceRoot, 'file-2.md'), repeatedNeedles);
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 120,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'book-two.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 120,
+						relativePath: 'file-2.md',
+						searchable: true,
+					},
+				];
+			},
 		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		const result = await tool.handler?.(
+			{
+				operation: 'search',
+				query: 'needle',
+				output_mode: 'content',
+				files: ['file-1', 'file-2'],
+				head_limit: 20,
+			},
+			{} as never,
+		);
+		const stdout = (result as { result: { stdout: string } }).result.stdout;
+
+		expect(result).toMatchObject({
+			operation: 'search',
+			result: {
+				truncated: true,
+			},
+			search: {
+				mode: 'content',
+				matches: expect.any(Array),
+				appliedLimit: 20,
+				nextOffset: 20,
+				hint: expect.stringContaining('Continue with offset=20 and head_limit=20'),
+			},
+		});
+		expect(stdout).toContain('book-one.md:12:needle 12');
+		expect(stdout).toContain('book-two.md:8:needle 8');
+		expect(stdout).not.toContain('book-two.md:9:needle 9');
+		expect(stdout).toContain('Continue with offset=20 and head_limit=20');
+	});
+
+	it('uses head_limit with contextual content output', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(
+					path.join(workspaceRoot, 'file-1.md'),
+					['before', 'needle 1', 'after', 'gap 1', 'gap 2', 'before', 'needle 2', 'after'].join(
+						'\n',
+					),
+				);
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 120,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		const result = await tool.handler?.(
+			{
+				operation: 'search',
+				query: 'needle',
+				output_mode: 'content',
+				context: 1,
+				files: ['file-1'],
+				head_limit: 1,
+			},
+			{} as never,
+		);
+		const stdout = (result as { result: { stdout: string } }).result.stdout;
+
+		expect(result).toMatchObject({
+			operation: 'search',
+			result: {
+				truncated: true,
+			},
+			search: {
+				appliedLimit: 1,
+				nextOffset: 1,
+			},
+		});
+		expect(stdout).toContain('book-one.md:2:needle 1');
+		expect(stdout).not.toContain('book-one.md:7:needle 2');
+		expect(stdout).toContain('Continue with offset=1 and head_limit=1');
+	});
+
+	it('returns content matches only when requested', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'first\nneedle\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 20,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.({ operation: 'search', query: 'needle', output_mode: 'content' }, {} as never),
+		).resolves.toMatchObject({
+			operation: 'search',
+			search: {
+				mode: 'content',
+				totalMatchingFiles: 1,
+				totalMatchingLines: 1,
+				matches: [
+					expect.objectContaining({
+						fileId: 'file-1',
+						lineNumber: 2,
+						text: 'needle',
+						readRange: { start: 1, end: 8 },
+					}),
+				],
+			},
+		});
+	});
+
+	it('defaults broad searches to matching files without line dumps', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(
+					path.join(workspaceRoot, 'file-1.md'),
+					Array.from({ length: 30 }, (_, index) => `needle ${index + 1}`).join('\n'),
+				);
+				await writeFile(
+					path.join(workspaceRoot, 'file-2.md'),
+					Array.from({ length: 5 }, (_, index) => `needle ${index + 1}`).join('\n'),
+				);
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 300,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'book-two.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 50,
+						relativePath: 'file-2.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		const result = await tool.handler?.({ operation: 'search', query: 'needle' }, {} as never);
+
+		expect(result).toMatchObject({
+			operation: 'search',
+			result: {
+				truncated: false,
+				stdout: expect.stringContaining('book-one.md'),
+			},
+			search: {
+				mode: 'files_with_matches',
+				totalMatchingFiles: 2,
+				totalMatchingLines: 35,
+				files: expect.arrayContaining([
+					expect.objectContaining({
+						id: 'file-1',
+						matchCount: 30,
+					}),
+				]),
+				matches: [],
+				hint: expect.stringContaining('Use read'),
+			},
+		});
+		expect((result as { result: { stdout: string } }).result.stdout).not.toContain('needle');
+		expect((result as { result: { stdout: string } }).result.stdout).not.toContain('file-1.md');
+	});
+
+	it('returns matching files without line dumps', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'needle\n');
+				await writeFile(path.join(workspaceRoot, 'file-2.md'), 'needle\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'book-two.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-2.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		const result = await tool.handler?.(
+			{ operation: 'search', query: 'needle', output_mode: 'files_with_matches', head_limit: 1 },
+			{} as never,
+		);
+
+		expect(result).toMatchObject({
+			search: {
+				mode: 'files_with_matches',
+				totalMatchingFiles: 2,
+				files: [expect.objectContaining({ id: 'file-1' })],
+				matches: [],
+				truncated: true,
+				appliedLimit: 1,
+				nextOffset: 1,
+				hint: expect.stringContaining('Continue with offset=1 and head_limit=1'),
+			},
+		});
+		expect((result as { result: { stdout: string } }).result.stdout).not.toContain('needle');
+		expect((result as { result: { stdout: string } }).result.stdout).not.toContain('file-1.md');
+		expect((result as { result: { stdout: string } }).result.stdout).toContain(
+			'Continue with offset=1 and head_limit=1',
+		);
+	});
+
+	it('returns per-file counts', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'needle\nneedle\n');
+				await writeFile(path.join(workspaceRoot, 'file-2.md'), 'needle\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 20,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'book-two.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-2.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.({ operation: 'search', query: 'needle', output_mode: 'count' }, {} as never),
+		).resolves.toMatchObject({
+			search: {
+				mode: 'count',
+				totalMatchingFiles: 2,
+				totalMatchingLines: 3,
+				files: [
+					expect.objectContaining({ id: 'file-1', matchCount: 2 }),
+					expect.objectContaining({ id: 'file-2', matchCount: 1 }),
+				],
+			},
+		});
+	});
+
+	it('paginates capped search result modes with offset', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'needle\n');
+				await writeFile(path.join(workspaceRoot, 'file-2.md'), 'needle\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'book-two.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-2.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{ operation: 'search', query: 'needle', output_mode: 'count', head_limit: 1, offset: 1 },
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			search: {
+				mode: 'count',
+				files: [expect.objectContaining({ id: 'file-2' })],
+				truncated: false,
+				appliedLimit: undefined,
+				appliedOffset: 1,
+				nextOffset: undefined,
+			},
+		});
+	});
+
+	it('supports head_limit zero as unlimited', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'needle\n');
+				await writeFile(path.join(workspaceRoot, 'file-2.md'), 'needle\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'book-two.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 10,
+						relativePath: 'file-2.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{ operation: 'search', query: 'needle', output_mode: 'files_with_matches', head_limit: 0 },
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			search: {
+				files: [
+					expect.objectContaining({ id: 'file-1' }),
+					expect.objectContaining({ id: 'file-2' }),
+				],
+				truncated: false,
+			},
+		});
+	});
+
+	it('uses extended regex for non-fixed search patterns', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'freedom\nnecessity\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 20,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{
+					operation: 'search',
+					query: 'freedom|necessity',
+					output_mode: 'content',
+					fixedStrings: false,
+				},
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			search: {
+				totalMatchingLines: 2,
+				matches: [
+					expect.objectContaining({ text: 'freedom' }),
+					expect.objectContaining({ text: 'necessity' }),
+				],
+			},
+		});
+	});
+
+	it('trims very long content match lines while preserving read ranges', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), `needle ${'x'.repeat(700)}\n`);
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 720,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.({ operation: 'search', query: 'needle', output_mode: 'content' }, {} as never),
+		).resolves.toMatchObject({
+			search: {
+				matches: [
+					expect.objectContaining({
+						lineNumber: 1,
+						readRange: { start: 1, end: 7 },
+						text: expect.stringContaining('[line truncated; use read for full text]'),
+						truncated: true,
+					}),
+				],
+			},
+			result: {
+				stdout: expect.stringContaining('[line truncated; use read for full text]'),
+			},
+		});
+	});
+
+	it('supports multi-query any search without hand-written regex', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(path.join(workspaceRoot, 'file-1.md'), 'necessity\nfreedom\n');
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 20,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{
+					operation: 'search',
+					queries: ['necessity', 'freedom'],
+					output_mode: 'content',
+					match_mode: 'any',
+				},
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			search: {
+				query: 'necessity',
+				queries: ['necessity', 'freedom'],
+				matchMode: 'any',
+				totalMatchingFiles: 1,
+				totalMatchingLines: 2,
+				matches: [
+					expect.objectContaining({ text: 'necessity' }),
+					expect.objectContaining({ text: 'freedom' }),
+				],
+			},
+		});
+	});
+
+	it('supports multi-query all_within_lines search without hand-written regex', async () => {
+		knowledgeService.materializeWorkspace.mockImplementation(
+			async (_agentId, _projectId, workspaceRoot) => {
+				const { writeFile } = await import('node:fs/promises');
+				const path = await import('node:path');
+				await writeFile(
+					path.join(workspaceRoot, 'file-1.md'),
+					['necessity governs history', 'bridge line', 'free will is constrained'].join('\n'),
+				);
+				await writeFile(
+					path.join(workspaceRoot, 'file-2.md'),
+					[
+						'necessity appears here',
+						'many lines later',
+						'still later',
+						'more distance',
+						'free will appears',
+					].join('\n'),
+				);
+				return [
+					{
+						id: 'file-1',
+						fileName: 'book-one.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 80,
+						relativePath: 'file-1.md',
+						searchable: true,
+					},
+					{
+						id: 'file-2',
+						fileName: 'book-two.md',
+						mimeType: 'text/markdown',
+						fileSizeBytes: 80,
+						relativePath: 'file-2.md',
+						searchable: true,
+					},
+				];
+			},
+		);
+		const tool = createSearchKnowledgeTool({
+			agentId,
+			projectId,
+			knowledgeService: mockKnowledgeService(),
+			commandService,
+		});
+
+		await expect(
+			tool.handler?.(
+				{
+					operation: 'search',
+					queries: ['necessity', 'free will'],
+					output_mode: 'content',
+					match_mode: 'all_within_lines',
+				},
+				{} as never,
+			),
+		).resolves.toMatchObject({
+			search: {
+				matchMode: 'all_within_lines',
+				totalMatchingFiles: 1,
+				totalMatchingLines: 2,
+				matches: [
+					expect.objectContaining({ fileId: 'file-1', lineNumber: 1 }),
+					expect.objectContaining({ fileId: 'file-1', lineNumber: 3 }),
+				],
+			},
+		});
 	});
 
 	it('rejects CSV query fields on search operations', async () => {
@@ -232,6 +905,10 @@ describe('search_knowledge tool', () => {
 			result: {
 				command: 'cat',
 				stdout: 'extracted PDF text\n',
+				citation: {
+					fileName: 'document.pdf',
+					instruction: expect.stringContaining('Do not cite file ids'),
+				},
 			},
 		});
 		expect(knowledgeService.materializeWorkspace).toHaveBeenCalledWith(

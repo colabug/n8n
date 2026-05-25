@@ -6,10 +6,15 @@ import type {
 	AgentKnowledgeCommandResult,
 } from '../agent-knowledge-command.service';
 
+export const DEFAULT_SEARCH_HEAD_LIMIT = 250;
+
 const lineRangeSchema = z.object({
 	start: z.number().int().min(1),
 	end: z.number().int().min(1),
 });
+
+const searchOutputModeSchema = z.enum(['files_with_matches', 'content', 'count']);
+const searchMatchModeSchema = z.enum(['any', 'all_on_same_line', 'all_within_lines']);
 
 export const csvFilterSchema = z.discriminatedUnion('op', [
 	z.object({
@@ -33,11 +38,16 @@ const listInputSchema = z.object({ operation: z.literal('list') }).strict();
 const searchInputSchema = z
 	.object({
 		operation: z.literal('search'),
-		query: z.string().min(1),
+		query: z.string().min(1).optional(),
+		queries: z.array(z.string().min(1)).min(1).max(5).optional(),
+		match_mode: searchMatchModeSchema.default('any'),
+		output_mode: searchOutputModeSchema.default('files_with_matches'),
 		caseInsensitive: z.boolean().optional(),
 		fixedStrings: z.boolean().optional(),
 		context: z.number().int().min(0).max(5).optional(),
 		files: z.array(z.string()).max(10).optional(),
+		offset: z.number().int().min(0).default(0),
+		head_limit: z.number().int().min(0).default(DEFAULT_SEARCH_HEAD_LIMIT),
 	})
 	.strict();
 const readInputSchema = z
@@ -80,7 +90,28 @@ export const searchKnowledgeInputSchema: JSONSchema7 = {
 		query: {
 			type: 'string',
 			minLength: 1,
-			description: 'For operation=search only: search pattern.',
+			description:
+				'For operation=search only: search pattern. For conceptual multi-term lookup, prefer queries with match_mode instead of writing regex by hand.',
+		},
+		queries: {
+			type: 'array',
+			minItems: 1,
+			maxItems: 5,
+			items: { type: 'string', minLength: 1 },
+			description:
+				'For operation=search only: multiple literal search terms for conceptual lookup without hand-written regex.',
+		},
+		match_mode: {
+			type: 'string',
+			default: 'any',
+			description:
+				'For operation=search with queries only: any, all_on_same_line, or all_within_lines. Use all_within_lines to find concepts near each other without regex.',
+		},
+		output_mode: {
+			type: 'string',
+			description:
+				'For operation=search only: content shows matching lines, files_with_matches shows only matching files (default), count shows match counts. Use content only after narrowing to a file or exact phrase.',
+			default: 'files_with_matches',
 		},
 		caseInsensitive: {
 			type: 'boolean',
@@ -95,18 +126,34 @@ export const searchKnowledgeInputSchema: JSONSchema7 = {
 			type: 'integer',
 			minimum: 0,
 			maximum: 5,
-			description: 'For operation=search only: number of surrounding context lines.',
+			description:
+				'For operation=search only: number of surrounding context lines. Requires output_mode=content.',
 		},
 		files: {
 			type: 'array',
 			maxItems: 10,
 			items: { type: 'string' },
-			description: 'For operation=search only: optional file ids or relative paths to search.',
+			description:
+				'For operation=search only: optional file ids or relative paths to search. These are tool handles only; do not cite them to users.',
+		},
+		offset: {
+			type: 'integer',
+			minimum: 0,
+			default: 0,
+			description: 'For operation=search only: number of files, counts, or matches to skip.',
+		},
+		head_limit: {
+			type: 'integer',
+			minimum: 0,
+			default: DEFAULT_SEARCH_HEAD_LIMIT,
+			description:
+				'For operation=search only: limit output to first N files/counts/lines. Defaults to 250. Pass 0 for unlimited.',
 		},
 		file: {
 			type: 'string',
 			minLength: 1,
-			description: 'For operation=read or csv_query: file id or relative path.',
+			description:
+				'For operation=read or csv_query: file id or relative path. This is a tool handle only; cite the returned fileName and lineRange instead.',
 		},
 		lineRange: {
 			type: 'object',
@@ -171,6 +218,47 @@ const commandResultOutputSchema = z.object({
 	stdout: z.string(),
 	stderr: z.string(),
 	truncated: z.boolean(),
+	citation: z
+		.object({
+			fileName: z.string(),
+			lineRange: lineRangeSchema.optional(),
+			instruction: z.string(),
+		})
+		.optional(),
+});
+
+const searchMatchOutputSchema = z.object({
+	fileId: z.string(),
+	fileName: z.string(),
+	relativePath: z.string(),
+	lineNumber: z.number(),
+	text: z.string(),
+	readRange: lineRangeSchema,
+	truncated: z.boolean().optional(),
+});
+
+const searchFileOutputSchema = z.object({
+	id: z.string(),
+	fileName: z.string(),
+	relativePath: z.string(),
+	matchCount: z.number(),
+	preview: z.array(searchMatchOutputSchema),
+});
+
+const searchResultOutputSchema = z.object({
+	mode: searchOutputModeSchema,
+	query: z.string(),
+	queries: z.array(z.string()).optional(),
+	matchMode: searchMatchModeSchema.optional(),
+	totalMatchingFiles: z.number(),
+	totalMatchingLines: z.number(),
+	files: z.array(searchFileOutputSchema),
+	matches: z.array(searchMatchOutputSchema),
+	truncated: z.boolean(),
+	appliedLimit: z.number().optional(),
+	appliedOffset: z.number().optional(),
+	nextOffset: z.number().optional(),
+	hint: z.string().optional(),
 });
 
 const csvQueryResultOutputSchema = z.object({
@@ -187,6 +275,7 @@ export const searchKnowledgeOutputSchema = z.object({
 	operation: z.enum(['list', 'search', 'read', 'csv_query']),
 	files: z.array(knowledgeFileOutputSchema),
 	result: commandResultOutputSchema.optional(),
+	search: searchResultOutputSchema.optional(),
 	csv: csvQueryResultOutputSchema.optional(),
 	error: z.string().optional(),
 });
@@ -195,6 +284,10 @@ export type ParsedSearchKnowledgeInput = z.infer<typeof searchKnowledgeParsingSc
 export type SearchKnowledgeOutput = z.infer<typeof searchKnowledgeOutputSchema>;
 export type CsvQueryInput = z.infer<typeof csvQueryInputSchema>;
 export type CsvFilter = z.infer<typeof csvFilterSchema>;
+export type SearchOutputMode = z.infer<typeof searchOutputModeSchema>;
+export type SearchMatchMode = z.infer<typeof searchMatchModeSchema>;
+export type SearchMatchOutput = z.infer<typeof searchMatchOutputSchema>;
+export type SearchResultOutput = z.infer<typeof searchResultOutputSchema>;
 export type InternalKnowledgeCommandRequest = Extract<
 	AgentKnowledgeCommandRequest,
 	{ command: 'git_grep' | 'cat' | 'sed' }
