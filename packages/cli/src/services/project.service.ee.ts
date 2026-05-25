@@ -31,8 +31,6 @@ import { UserError } from 'n8n-workflow';
 import { BadRequestError } from '@/errors/response-errors/bad-request.error';
 import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
-import { AgentKnowledgeService } from '@/modules/agents/agent-knowledge.service';
-import { AgentRepository } from '@/modules/agents/repositories/agent.repository';
 
 import { RoleService } from './role.service';
 
@@ -75,8 +73,6 @@ export class ProjectService {
 		private readonly sharedCredentialsRepository: SharedCredentialsRepository,
 		private readonly licenseState: LicenseState,
 		private readonly moduleRegistry: ModuleRegistry,
-		private readonly agentRepository: AgentRepository,
-		private readonly agentKnowledgeService: AgentKnowledgeService,
 	) {}
 
 	private get workflowService() {
@@ -106,6 +102,18 @@ export class ProjectService {
 	private get secretsProvidersConnectionsService() {
 		return import('@/modules/external-secrets.ee/secrets-providers-connections.service.ee').then(
 			({ SecretsProvidersConnectionsService }) => Container.get(SecretsProvidersConnectionsService),
+		);
+	}
+
+	private get agentRepository() {
+		return import('@/modules/agents/repositories/agent.repository').then(({ AgentRepository }) =>
+			Container.get(AgentRepository),
+		);
+	}
+
+	private get agentKnowledgeService() {
+		return import('@/modules/agents/agent-knowledge.service').then(({ AgentKnowledgeService }) =>
+			Container.get(AgentKnowledgeService),
 		);
 	}
 
@@ -212,9 +220,13 @@ export class ProjectService {
 
 		// 8. delete agent knowledge files before project removal cascades delete agent_files rows.
 		if (this.moduleRegistry.isActive('agents')) {
-			const agents = await this.agentRepository.findByProjectId(project.id);
+			const [agentRepository, agentKnowledgeService] = await Promise.all([
+				this.agentRepository,
+				this.agentKnowledgeService,
+			]);
+			const agents = await agentRepository.findByProjectId(project.id);
 			for (const agent of agents) {
-				await this.agentKnowledgeService.deleteAllFilesForAgent(agent.id);
+				await agentKnowledgeService.deleteAllFilesForAgent(agent.id);
 			}
 		}
 

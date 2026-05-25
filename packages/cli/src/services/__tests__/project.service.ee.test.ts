@@ -37,8 +37,6 @@ describe('ProjectService', () => {
 		sharedCredentialsRepository,
 		mock(),
 		moduleRegistry,
-		agentRepository,
-		agentKnowledgeService,
 	);
 
 	beforeEach(() => {
@@ -290,6 +288,14 @@ describe('ProjectService', () => {
 			Object.defineProperty(projectService, 'credentialsService', {
 				configurable: true,
 				get: async () => ({ delete: jest.fn() }),
+			});
+			Object.defineProperty(projectService, 'agentRepository', {
+				configurable: true,
+				get: async () => agentRepository,
+			});
+			Object.defineProperty(projectService, 'agentKnowledgeService', {
+				configurable: true,
+				get: async () => agentKnowledgeService,
 			});
 			manager.findOne.mockResolvedValueOnce(project);
 			projectRepository.remove.mockResolvedValueOnce(project);
