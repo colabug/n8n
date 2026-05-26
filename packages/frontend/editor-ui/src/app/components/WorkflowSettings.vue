@@ -285,6 +285,7 @@ const customTelemetryTagsParameters = computed<INodeProperties[]>(() => [
 						name: 'value',
 						type: 'string',
 						default: '',
+						noDataExpression: true,
 						isNodeSetting: true,
 					},
 				],

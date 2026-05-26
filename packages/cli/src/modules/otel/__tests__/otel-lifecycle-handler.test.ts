@@ -23,10 +23,10 @@ const emptyExecutionData = {
 
 const nodeTypes = mock<INodeTypes>();
 
-function createWorkflowInstance(name = 'Test') {
+function createWorkflowInstance() {
 	return new Workflow({
 		id: 'wf-1',
-		name,
+		name: 'Test',
 		active: false,
 		nodes: [],
 		connections: {},
@@ -67,7 +67,6 @@ describe('OtelLifecycleHandler', () => {
 			},
 			workflowInstance: createWorkflowInstance(),
 			executionId: 'exec-sub',
-			mode: 'manual',
 		};
 
 		beforeEach(() => {
@@ -171,7 +170,7 @@ describe('OtelLifecycleHandler', () => {
 			expect(traceContextService.persist).toHaveBeenCalledWith('exec-sub', generatedSpanContext);
 		});
 
-		it('should pass evaluated workflow custom telemetry tags to the tracer', async () => {
+		it('should pass literal workflow custom telemetry tags to the tracer', async () => {
 			await handler.onWorkflowStart({
 				...baseCtx,
 				workflow: {
@@ -186,22 +185,20 @@ describe('OtelLifecycleHandler', () => {
 						},
 					},
 				},
-				workflowInstance: createWorkflowInstance('Workflow Tags'),
-				mode: 'webhook',
 			});
 
 			expect(tracer.startWorkflow).toHaveBeenCalledWith(
 				expect.objectContaining({
 					customAttributes: {
 						environment: 'production',
-						workflowName: 'Workflow Tags',
-						mode: 'webhook',
+						workflowName: '={{ $workflow.name }}',
+						mode: '={{ $mode }}',
 					},
 				}),
 			);
 		});
 
-		it('should skip invalid workflow custom telemetry tags and warn for unsafe values', async () => {
+		it('should skip workflow custom telemetry tags with empty keys', async () => {
 			await handler.onWorkflowStart({
 				...baseCtx,
 				workflow: {
@@ -217,20 +214,18 @@ describe('OtelLifecycleHandler', () => {
 						},
 					},
 				},
-				workflowInstance: createWorkflowInstance(),
 			});
 
 			expect(tracer.startWorkflow).toHaveBeenCalledWith(
-				expect.objectContaining({ customAttributes: undefined }),
+				expect.objectContaining({
+					customAttributes: {
+						nullish: '={{ undefined }}',
+						objectValue: '={{ ({ nested: true }) }}',
+						failed: '={{ $json.missing.value }}',
+					},
+				}),
 			);
-			expect(logger.warn).toHaveBeenCalledWith(
-				'customTelemetryTags expression resolved to a non-primitive value; skipping',
-				expect.objectContaining({ workflowId: 'wf-1', tagKey: 'objectValue' }),
-			);
-			expect(logger.warn).toHaveBeenCalledWith(
-				'Failed to evaluate customTelemetryTags expression',
-				expect.objectContaining({ workflowId: 'wf-1', tagKey: 'failed' }),
-			);
+			expect(logger.warn).not.toHaveBeenCalled();
 		});
 
 		it('should omit customAttributes when workflow custom telemetry tags are absent', async () => {
@@ -321,7 +316,6 @@ describe('OtelLifecycleHandler', () => {
 				workflowInstance: createWorkflowInstance(),
 				executionData: undefined as never,
 				executionId: 'exec-resume',
-				mode: 'manual',
 			} as never);
 
 			expect(traceContextService.get).toHaveBeenCalledWith('exec-resume');
