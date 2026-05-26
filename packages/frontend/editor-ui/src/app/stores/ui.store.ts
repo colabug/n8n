@@ -43,6 +43,7 @@ import {
 	INSTANCE_AI_CREDENTIAL_SETUP_MODAL_KEY,
 	AI_GATEWAY_TOP_UP_MODAL_KEY,
 	AGENT_CONFIRMATION_MODAL_KEY,
+	MISSING_CONNECTIONS_MODAL_KEY,
 } from '@/app/constants';
 import {
 	ANNOTATION_TAGS_MANAGER_MODAL_KEY,
@@ -274,6 +275,12 @@ export const useUIStore = defineStore(STORES.UI, () => {
 			open: false,
 			data: {
 				nodeName: '',
+			},
+		},
+		[MISSING_CONNECTIONS_MODAL_KEY]: {
+			open: false,
+			data: {
+				missingCredentials: [],
 			},
 		},
 	});

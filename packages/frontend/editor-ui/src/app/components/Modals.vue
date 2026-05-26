@@ -40,6 +40,7 @@ import {
 	INSTANCE_AI_CREDENTIAL_SETUP_MODAL_KEY,
 	AI_GATEWAY_TOP_UP_MODAL_KEY,
 	AGENT_CONFIRMATION_MODAL_KEY,
+	MISSING_CONNECTIONS_MODAL_KEY,
 } from '@/app/constants';
 import {
 	ANNOTATION_TAGS_MANAGER_MODAL_KEY,
@@ -74,6 +75,7 @@ import {
 import { API_KEY_CREATE_OR_EDIT_MODAL_KEY } from '@/features/settings/apiKeys/apiKeys.constants';
 import AboutModal from '@/app/components/AboutModal.vue';
 import ActivationModal from '@/app/components/ActivationModal.vue';
+import MissingConnectionsModal from '@/app/components/MissingConnectionsModal.vue';
 import ApiKeyCreateOrEditModal from '@/features/settings/apiKeys/components/ApiKeyCreateOrEditModal.vue';
 import NewAssistantSessionModal from '@/features/ai/assistant/components/Chat/NewAssistantSessionModal.vue';
 import ChangePasswordModal from '@/features/core/auth/components/ChangePasswordModal.vue';
@@ -232,6 +234,10 @@ import InstanceAiCredentialSetupModal, {
 
 		<ModalRoot :name="WORKFLOW_ACTIVE_MODAL_KEY">
 			<ActivationModal />
+		</ModalRoot>
+
+		<ModalRoot :name="MISSING_CONNECTIONS_MODAL_KEY">
+			<MissingConnectionsModal />
 		</ModalRoot>
 
 		<ModalRoot :name="MFA_SETUP_MODAL_KEY">

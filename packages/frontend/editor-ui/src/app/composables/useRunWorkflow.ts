@@ -32,8 +32,10 @@ import {
 	CHAT_HITL_TOOL_NODE_TYPE,
 	CHAT_TRIGGER_NODE_TYPE,
 	IN_PROGRESS_EXECUTION_ID,
+	MISSING_CONNECTIONS_MODAL_KEY,
 	RESPOND_TO_WEBHOOK_NODE_TYPE,
 } from '@/app/constants';
+import { useCredentialsStore } from '@/features/credentials/credentials.store';
 
 import { useRootStore } from '@n8n/stores/useRootStore';
 import { useWorkflowsStore } from '@/app/stores/workflows.store';
@@ -81,6 +83,7 @@ export function useRunWorkflow(useRunWorkflowOpts: {
 	const workflowState = useRunWorkflowOpts.workflowState ?? injectWorkflowState();
 
 	const workflowDocumentStore = injectWorkflowDocumentStore();
+	const credentialsStore = useCredentialsStore();
 
 	const nodeHelpers = useNodeHelpers();
 	const workflowSaving = useWorkflowSaving({
@@ -90,6 +93,25 @@ export function useRunWorkflow(useRunWorkflowOpts: {
 	const { dirtinessByName } = useNodeDirtiness();
 	const { startChat } = useCanvasOperations();
 	const chatStore = useChat();
+
+	function collectMissingPrivateConnections(nodes: INode[]) {
+		const byCredentialId = new Map<string, { id: string; name: string; nodeNames: string[] }>();
+		for (const node of nodes) {
+			if (node.disabled || !node.credentials) continue;
+			for (const credRef of Object.values(node.credentials)) {
+				if (!credRef?.id) continue;
+				const cred = credentialsStore.getCredentialById(credRef.id);
+				if (!cred?.isResolvable || cred.connectedByMe !== false) continue;
+				const existing = byCredentialId.get(cred.id);
+				if (existing) {
+					existing.nodeNames.push(node.name);
+				} else {
+					byCredentialId.set(cred.id, { id: cred.id, name: cred.name, nodeNames: [node.name] });
+				}
+			}
+		}
+		return Array.from(byCredentialId.values());
+	}
 
 	function sortNodesByYPosition(nodes: string[]) {
 		return [...nodes].sort((a, b) => {
@@ -170,6 +192,15 @@ export function useRunWorkflow(useRunWorkflowOpts: {
 			}
 
 			const workflowData = workflowDocumentStore.value.serialize();
+
+			const missingConnections = collectMissingPrivateConnections(workflowData.nodes);
+			if (missingConnections.length > 0) {
+				uiStore.openModalWithData({
+					name: MISSING_CONNECTIONS_MODAL_KEY,
+					data: { missingCredentials: missingConnections },
+				});
+				return undefined;
+			}
 
 			if (
 				rootStore.binaryDataMode === 'default' &&
