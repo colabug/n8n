@@ -53,6 +53,7 @@ import { AddChatMessageIndices1766068346315 } from './1766068346315-AddChatMessa
 import { ChangeWorkflowStatisticsFKToNoAction1767018516000 } from './1767018516000-ChangeWorkflowStatisticsFKToNoAction';
 import { LimitWorkflowVersionTriggerToContent1784000000003 } from './1784000000003-LimitWorkflowVersionTriggerToContent';
 import { CreateAgentHistoryTable1784000000011 } from './1784000000011-CreateAgentHistoryTable';
+import { AddExecutedByUserIdToExecution1784000000015 } from './1784000000015-AddExecutedByUserIdToExecution';
 import { UniqueWorkflowNames1620821879465 } from '../common/1620821879465-UniqueWorkflowNames';
 import { UpdateWorkflowCredentials1630330987096 } from '../common/1630330987096-UpdateWorkflowCredentials';
 import { AddNodeIds1658930531669 } from '../common/1658930531669-AddNodeIds';
@@ -371,6 +372,7 @@ const sqliteMigrations: Migration[] = [
 	CreateInstanceAiObservationTables1784000000012,
 	SplitRedactionScopeInCustomRoles1784000000013,
 	PersistInstanceAiPendingConfirmations1784000000014,
+	AddExecutedByUserIdToExecution1784000000015,
 ];
 
 export { sqliteMigrations };
