@@ -793,6 +793,48 @@ describe('AgentsService', () => {
 			expect(streamConfig.memory.resourceId).toBe(chatUserId);
 			expect(streamConfig.memory.resourceId).not.toBe(n8nPublisherId);
 		});
+
+		it('reconstructs separate published runtimes for different resource IDs', async () => {
+			const schema: AgentJsonConfig = {
+				name: 'Test Agent',
+				model: 'anthropic/claude-sonnet-4-5',
+				instructions: 'Be helpful',
+			};
+			const agent = makeAgent({
+				schema,
+				publishedVersion: makePublishedVersion({ schema, publishedById: userId }),
+			});
+			agentRepository.findByIdAndProjectId.mockResolvedValue(agent);
+
+			jest.spyOn(service as never, 'createCredentialProvider').mockReturnValue(mock());
+			const reconstructSpy = jest
+				.spyOn(service as never, 'reconstructFromConfig')
+				.mockResolvedValue({ agent: {}, toolRegistry: {} } as never);
+			jest
+				.spyOn(service as never, 'streamChatResponse')
+				.mockImplementation(async function* () {} as never);
+
+			await service
+				.executeForChatPublished({
+					agentId,
+					projectId,
+					message: 'hello',
+					memory: { threadId: 'thread-1', resourceId: 'resource-1' },
+				})
+				.next();
+			await service
+				.executeForChatPublished({
+					agentId,
+					projectId,
+					message: 'hello again',
+					memory: { threadId: 'thread-2', resourceId: 'resource-2' },
+				})
+				.next();
+
+			expect(reconstructSpy).toHaveBeenCalledTimes(2);
+			expect(reconstructSpy.mock.calls[0][3]).toBe('resource-1');
+			expect(reconstructSpy.mock.calls[1][3]).toBe('resource-2');
+		});
 	});
 
 	describe('executeForWorkflow', () => {
@@ -830,6 +872,7 @@ describe('AgentsService', () => {
 				ok: true,
 				agent: { name: 'Test Agent', stream },
 			} as never);
+			const compileSpy = jest.spyOn(service as never, 'compileIsolated');
 
 			await service.executeForWorkflow(
 				agentId,
@@ -846,6 +889,7 @@ describe('AgentsService', () => {
 					persistence: { resourceId: 'execution-1', threadId: 'thread-1' },
 				}),
 			);
+			expect(compileSpy.mock.calls[0][3]).toBe('execution-1');
 			expect(releaseLock).toHaveBeenCalled();
 		});
 	});

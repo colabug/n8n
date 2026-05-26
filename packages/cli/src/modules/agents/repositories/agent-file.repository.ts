@@ -9,14 +9,22 @@ export class AgentFileRepository extends Repository<AgentFile> {
 		super(AgentFile, dataSource.manager);
 	}
 
-	async findByAgentId(agentId: string): Promise<AgentFile[]> {
+	async findByAgentIdAndResourceId(agentId: string, resourceId: string): Promise<AgentFile[]> {
 		return await this.find({
-			where: { agentId },
+			where: { agentId, resourceId },
 			order: { createdAt: 'DESC' },
 		});
 	}
 
-	async findByIdAndAgentId(fileId: string, agentId: string): Promise<AgentFile | null> {
-		return await this.findOne({ where: { id: fileId, agentId } });
+	async findAllByAgentId(agentId: string): Promise<AgentFile[]> {
+		return await this.find({ where: { agentId } });
+	}
+
+	async findByIdAgentIdAndResourceId(
+		fileId: string,
+		agentId: string,
+		resourceId: string,
+	): Promise<AgentFile | null> {
+		return await this.findOne({ where: { id: fileId, agentId, resourceId } });
 	}
 }

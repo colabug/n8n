@@ -48,6 +48,7 @@ export class AgentKnowledgeService {
 	async uploadFiles(
 		agentId: string,
 		projectId: string,
+		resourceId: string,
 		files: Express.Multer.File[],
 	): Promise<AgentFileDto[]> {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
@@ -56,7 +57,7 @@ export class AgentKnowledgeService {
 
 		try {
 			for (const file of files) {
-				storedFiles.push(await this.storeFile(agentId, file));
+				storedFiles.push(await this.storeFile(agentId, resourceId, file));
 			}
 		} catch (error) {
 			await this.cleanupStoredFiles(storedFiles).catch(() => {});
@@ -67,34 +68,43 @@ export class AgentKnowledgeService {
 		return storedFiles.map((file) => this.toDto(file));
 	}
 
-	async listFiles(agentId: string, projectId: string): Promise<AgentFileDto[]> {
+	async listFiles(agentId: string, projectId: string, resourceId: string): Promise<AgentFileDto[]> {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
 
-		const files = await this.agentFileRepository.findByAgentId(agentId);
+		const files = await this.agentFileRepository.findByAgentIdAndResourceId(agentId, resourceId);
 		return files.map((file) => this.toDto(file));
 	}
 
-	async listWorkspaceFiles(agentId: string, projectId: string) {
+	async listWorkspaceFiles(agentId: string, projectId: string, resourceId: string) {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
 
-		const files = await this.agentFileRepository.findByAgentId(agentId);
+		const files = await this.agentFileRepository.findByAgentIdAndResourceId(agentId, resourceId);
 		return files.map((file) => this.toWorkspaceFile(file));
 	}
 
-	async deleteFile(agentId: string, projectId: string, fileId: string): Promise<void> {
+	async deleteFile(
+		agentId: string,
+		projectId: string,
+		resourceId: string,
+		fileId: string,
+	): Promise<void> {
 		await this.ensureAgentBelongsToProject(agentId, projectId);
 
-		const file = await this.agentFileRepository.findByIdAndAgentId(fileId, agentId);
+		const file = await this.agentFileRepository.findByIdAgentIdAndResourceId(
+			fileId,
+			agentId,
+			resourceId,
+		);
 		if (!file) {
 			throw new NotFoundError(`Agent file "${fileId}" not found`);
 		}
 
 		await this.binaryDataService.deleteManyByBinaryDataId([file.binaryDataId]);
-		await this.agentFileRepository.delete({ id: fileId, agentId });
+		await this.agentFileRepository.delete({ id: fileId, agentId, resourceId });
 	}
 
 	async deleteAllFilesForAgent(agentId: string): Promise<void> {
-		const files = await this.agentFileRepository.findByAgentId(agentId);
+		const files = await this.agentFileRepository.findAllByAgentId(agentId);
 		if (files.length === 0) return;
 
 		await this.binaryDataService.deleteManyByBinaryDataId(files.map((file) => file.binaryDataId));
@@ -104,6 +114,7 @@ export class AgentKnowledgeService {
 	async materializeWorkspace(
 		agentId: string,
 		projectId: string,
+		resourceId: string,
 		workspaceRoot: string,
 		options: MaterializeWorkspaceOptions = {},
 	) {
@@ -111,7 +122,7 @@ export class AgentKnowledgeService {
 		await mkdir(workspaceRoot, { recursive: true });
 
 		const files = this.filterFilesForWorkspace(
-			await this.agentFileRepository.findByAgentId(agentId),
+			await this.agentFileRepository.findByAgentIdAndResourceId(agentId, resourceId),
 			options.fileReferences,
 		);
 		const materializedFiles: KnowledgeWorkspaceFile[] = [];
@@ -143,7 +154,11 @@ export class AgentKnowledgeService {
 		}
 	}
 
-	private async storeFile(agentId: string, file: Express.Multer.File): Promise<StoredAgentFile> {
+	private async storeFile(
+		agentId: string,
+		resourceId: string,
+		file: Express.Multer.File,
+	): Promise<StoredAgentFile> {
 		let storedBinaryDataId: string | undefined;
 		try {
 			const fileId = generateNanoId();
@@ -168,7 +183,7 @@ export class AgentKnowledgeService {
 				FileLocation.ofCustom({
 					sourceType: 'agent_file',
 					sourceId: fileId,
-					pathSegments: ['agents', agentId, 'files', fileId],
+					pathSegments: ['agents', agentId, 'resources', resourceId, 'files', fileId],
 				}),
 				storedContent.buffer,
 				binaryData,
@@ -182,6 +197,7 @@ export class AgentKnowledgeService {
 			const agentFile = this.agentFileRepository.create({
 				id: fileId,
 				agentId,
+				resourceId,
 				binaryDataId: storedBinaryDataId,
 				fileName,
 				mimeType: storedContent.mimeType,
