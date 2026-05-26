@@ -253,6 +253,14 @@ export { createLazyRuntimeWorkspace } from './workspace/lazy-runtime-workspace';
 export type { RuntimeWorkspaceResolver } from './workspace/lazy-runtime-workspace';
 export { getWorkspaceRoot, setupSandboxWorkspace } from './workspace/sandbox-setup';
 export type { FilesystemMutationGuardSetter } from './workspace/guarded-filesystem';
+export {
+	BuilderTemplatesService,
+	builderTemplatesOptionsFromEnv,
+} from './workspace/builder-templates-service';
+export type {
+	BuilderTemplatesBundle,
+	BuilderTemplatesServiceOptions,
+} from './workspace/builder-templates-service';
 export const createSandbox: typeof CreateWorkspaceMod.createSandbox = lazyFunction(
 	() => loadCreateWorkspace().createSandbox,
 );

@@ -44,6 +44,10 @@ interface DaytonaSandboxConfig extends SandboxConfigBase {
 	createTimeoutSeconds?: number;
 	/** When provided, called before each Daytona interaction to get a fresh auth token (e.g. a short-lived JWT for proxy mode). */
 	getAuthToken?: () => Promise<string>;
+	/** Optional override (ms) for the JWT refresh skew window. Only used in proxy mode. */
+	refreshSkewMs?: number;
+	/** Optional logger forwarded to the auth manager for refresh-event logging. */
+	logger?: Logger;
 }
 
 interface LocalSandboxConfig extends SandboxConfigBase {
@@ -97,20 +101,18 @@ export async function createSandbox(
 	if (!config.enabled) return undefined;
 
 	if (config.provider === 'daytona') {
-		// In proxy mode, resolve a fresh token via getAuthToken; in direct mode use the static key.
-		const apiKey = config.getAuthToken ? await config.getAuthToken() : config.daytonaApiKey;
+		// Keep DaytonaSandbox in charge of token refresh; snapshot lookup only needs an initial client.
+		const logger = options.logger ?? config.logger ?? NOOP_LOGGER;
 		const mode = config.getAuthToken ? 'proxy' : 'direct';
 		const snapshotManager = options.useSnapshotFallback
-			? new SnapshotManager(
-					config.image,
-					options.logger ?? NOOP_LOGGER,
-					config.n8nVersion,
-					options.errorReporter,
-				)
+			? new SnapshotManager(config.image, logger, config.n8nVersion, options.errorReporter)
 			: undefined;
 		const snapshot = snapshotManager
 			? await snapshotManager.ensureSnapshot(
-					new (loadDaytona().Daytona)({ apiKey, apiUrl: config.daytonaApiUrl }),
+					new (loadDaytona().Daytona)({
+						apiKey: config.getAuthToken ? await config.getAuthToken() : config.daytonaApiKey,
+						apiUrl: config.daytonaApiUrl,
+					}),
 					mode,
 				)
 			: undefined;
@@ -119,7 +121,9 @@ export async function createSandbox(
 		return new DaytonaSandbox({
 			id: config.id,
 			name: config.name,
-			apiKey,
+			apiKey: config.getAuthToken ? undefined : config.daytonaApiKey,
+			getAuthToken: config.getAuthToken,
+			refreshSkewMs: config.refreshSkewMs,
 			apiUrl: config.daytonaApiUrl,
 			labels: config.labels,
 			...(image ? { image } : {}),
@@ -128,7 +132,7 @@ export async function createSandbox(
 			language: 'typescript',
 			timeout: config.timeout ?? 300_000,
 			createTimeoutSeconds: config.createTimeoutSeconds ?? 300,
-			logger: options.logger,
+			logger,
 			errorReporter: options.errorReporter,
 			createStrategyMode: mode,
 		});
