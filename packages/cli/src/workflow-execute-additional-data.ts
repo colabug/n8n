@@ -263,7 +263,6 @@ export async function executeAgent(
 	additionalData: IWorkflowExecuteAdditionalData,
 ): Promise<ExecuteAgentData> {
 	let userId = additionalData.userId;
-	const telemetryUserId = additionalData.userId;
 	let projectId = additionalData.projectId;
 
 	// Trigger-fired and webhook executions build `additionalData` without a
@@ -301,7 +300,6 @@ export async function executeAgent(
 		threadId,
 		userId,
 		projectId,
-		telemetryUserId,
 	);
 }
 

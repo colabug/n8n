@@ -189,8 +189,6 @@ export interface IExecutionTrackProperties extends ITelemetryTrackProperties {
 
 export interface IAgentExecutionTrackProperties extends ITelemetryTrackProperties {
 	agent_id: string;
-	/** n8n user ID, present only when the agent run has direct n8n user context. */
-	user_id?: string;
 	message_count?: number;
 	token_count?: number;
 	tool_call_count?: number;
