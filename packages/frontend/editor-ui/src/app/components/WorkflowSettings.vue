@@ -374,10 +374,6 @@ const redactManualData = computed({
 	},
 });
 
-const mcpToggleDisabled = computed(() => {
-	return readOnlyEnv.value || !workflowPermissions.value.update;
-});
-
 const mcpToggleTooltip = computed(() => {
 	return i18n.baseText('workflowSettings.availableInMCP.tooltip');
 });
@@ -1552,13 +1548,13 @@ onBeforeUnmount(() => {
 					</ElCol>
 					<ElCol :span="14">
 						<div>
-							<N8nTooltip placement="top" :disabled="!mcpToggleDisabled">
+							<N8nTooltip placement="top" :disabled="!isWorkflowSettingsReadOnly">
 								<template #content>
 									{{ mcpToggleTooltip }}
 								</template>
 								<ElSwitch
 									ref="inputField"
-									:disabled="mcpToggleDisabled"
+									:disabled="isWorkflowSettingsReadOnly"
 									:model-value="workflowSettings.availableInMCP ?? false"
 									data-test-id="workflow-settings-available-in-mcp"
 									@update:model-value="toggleAvailableInMCP"
