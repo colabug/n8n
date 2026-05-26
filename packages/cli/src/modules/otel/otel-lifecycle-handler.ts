@@ -55,8 +55,8 @@ export class OtelLifecycleHandler {
 				name: ctx.workflow.name,
 				versionId: ctx.workflow.versionId,
 				nodeCount: ctx.workflow.nodes.length,
+				customAttributes: this.buildWorkflowCustomAttributes(ctx),
 			},
-			customAttributes: this.buildWorkflowCustomAttributes(ctx),
 		});
 
 		// Given we have now started a "workflow" we should persist the traceparent - it will change the
@@ -88,8 +88,8 @@ export class OtelLifecycleHandler {
 				name: ctx.workflow.name,
 				versionId: ctx.workflow.versionId,
 				nodeCount: ctx.workflow.nodes.length,
+				customAttributes: this.buildWorkflowCustomAttributes(ctx),
 			},
-			customAttributes: this.buildWorkflowCustomAttributes(ctx),
 		});
 	}
 
