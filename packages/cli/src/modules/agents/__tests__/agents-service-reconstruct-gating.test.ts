@@ -97,8 +97,7 @@ type Reconstructable = {
 	reconstructFromConfig(
 		agentEntity: Agent,
 		credentialProvider: CredentialProvider,
-		userId: string,
-		resourceId: string,
+		userId?: string,
 	): Promise<{ agent: agents.Agent; toolRegistry: ToolRegistry }>;
 };
 
@@ -163,12 +162,7 @@ describe('AgentsService.reconstructFromConfig — node tools gating', () => {
 		});
 		const entity = makeAgentEntity(schemaConfig);
 
-		await (service as unknown as Reconstructable).reconstructFromConfig(
-			entity,
-			credentialProvider,
-			'user-1',
-			'resource-1',
-		);
+		await (service as unknown as Reconstructable).reconstructFromConfig(entity, credentialProvider);
 
 		if (attaches) {
 			expect(agentsToolsService.getRuntimeTools).toHaveBeenCalledWith(

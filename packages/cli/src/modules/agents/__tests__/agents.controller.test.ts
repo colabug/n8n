@@ -142,12 +142,12 @@ describe('AgentsController file uploads', () => {
 		const { controller } = makeController({ agentKnowledgeService });
 
 		await controller.listFiles(
-			{ params: { projectId: 'project-1' }, user: { id: 'user-1' } } as never,
+			{ params: { projectId: 'project-1' } } as never,
 			undefined as never,
 			'agent-1',
 		);
 
-		expect(agentKnowledgeService.listFiles).toHaveBeenCalledWith('agent-1', 'project-1', 'user-1');
+		expect(agentKnowledgeService.listFiles).toHaveBeenCalledWith('agent-1', 'project-1');
 	});
 
 	it('rejects empty uploads', async () => {
@@ -155,7 +155,7 @@ describe('AgentsController file uploads', () => {
 
 		await expect(
 			controller.uploadFiles(
-				{ params: { projectId: 'project-1' }, user: { id: 'user-1' }, files: [] } as never,
+				{ params: { projectId: 'project-1' }, files: [] } as never,
 				undefined as never,
 				'agent-1',
 			),
@@ -209,17 +209,12 @@ describe('AgentsController file uploads', () => {
 		const files = [{ originalname: 'document.txt' }] as Express.Multer.File[];
 
 		await controller.uploadFiles(
-			{ params: { projectId: 'project-1' }, user: { id: 'user-1' }, files } as never,
+			{ params: { projectId: 'project-1' }, files } as never,
 			undefined as never,
 			'agent-1',
 		);
 
-		expect(agentKnowledgeService.uploadFiles).toHaveBeenCalledWith(
-			'agent-1',
-			'project-1',
-			'user-1',
-			files,
-		);
+		expect(agentKnowledgeService.uploadFiles).toHaveBeenCalledWith('agent-1', 'project-1', files);
 	});
 
 	it('deletes files with the project, agent, and file IDs', async () => {
@@ -228,19 +223,14 @@ describe('AgentsController file uploads', () => {
 
 		await expect(
 			controller.deleteFile(
-				{ params: { projectId: 'project-1' }, user: { id: 'user-1' } } as never,
+				{ params: { projectId: 'project-1' } } as never,
 				undefined as never,
 				'agent-1',
 				'file-1',
 			),
 		).resolves.toEqual({ success: true });
 
-		expect(agentKnowledgeService.deleteFile).toHaveBeenCalledWith(
-			'agent-1',
-			'project-1',
-			'user-1',
-			'file-1',
-		);
+		expect(agentKnowledgeService.deleteFile).toHaveBeenCalledWith('agent-1', 'project-1', 'file-1');
 	});
 });
 

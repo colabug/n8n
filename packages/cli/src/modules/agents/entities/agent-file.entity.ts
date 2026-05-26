@@ -4,7 +4,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne, type Relation } from '@n8
 import { Agent } from './agent.entity';
 
 @Entity({ name: 'agent_files' })
-@Index(['agentId', 'resourceId', 'createdAt'])
+@Index(['agentId', 'createdAt'])
 export class AgentFile extends WithTimestampsAndStringId {
 	@ManyToOne(() => Agent, { onDelete: 'CASCADE' })
 	@JoinColumn({ name: 'agentId' })
@@ -12,9 +12,6 @@ export class AgentFile extends WithTimestampsAndStringId {
 
 	@Column({ type: 'varchar', length: 36 })
 	agentId: string;
-
-	@Column({ type: 'varchar', length: 255 })
-	resourceId: string;
 
 	@Column({ type: 'text' })
 	binaryDataId: string;

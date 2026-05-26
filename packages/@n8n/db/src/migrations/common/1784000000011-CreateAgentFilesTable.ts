@@ -17,9 +17,6 @@ export class CreateAgentFilesTable1784000000011 implements ReversibleMigration {
 					.varchar(36)
 					.primary.notNull.comment('Application-generated n8n string ID, not a database UUID'),
 				column('agentId').varchar(36).notNull.comment('Agent that owns this uploaded file'),
-				column('resourceId')
-					.varchar(255)
-					.notNull.comment('Resource identity that owns this uploaded file'),
 				column('binaryDataId').text.notNull.comment(
 					'BinaryDataService ID for the uploaded file contents',
 				),
@@ -27,7 +24,7 @@ export class CreateAgentFilesTable1784000000011 implements ReversibleMigration {
 				column('mimeType').varchar(255).notNull,
 				column('fileSizeBytes').int.notNull.comment('Uploaded file size in bytes'),
 			)
-			.withIndexOn(['agentId', 'resourceId', 'createdAt'])
+			.withIndexOn(['agentId', 'createdAt'])
 			.withForeignKey('agentId', {
 				tableName: 'agents',
 				columnName: 'id',

@@ -31,13 +31,11 @@ const MULTI_QUERY_WINDOW_LINES = 3;
 export function createSearchKnowledgeTool({
 	agentId,
 	projectId,
-	resourceId,
 	knowledgeService,
 	commandService,
 }: {
 	agentId: string;
 	projectId: string;
-	resourceId: string;
 	knowledgeService: AgentKnowledgeService;
 	commandService: AgentKnowledgeCommandService;
 }) {
@@ -72,7 +70,7 @@ export function createSearchKnowledgeTool({
 			if (parsedInput.operation === 'list') {
 				return {
 					operation: 'list',
-					files: await knowledgeService.listWorkspaceFiles(agentId, projectId, resourceId),
+					files: await knowledgeService.listWorkspaceFiles(agentId, projectId),
 				};
 			}
 
@@ -80,7 +78,6 @@ export function createSearchKnowledgeTool({
 				const files = await knowledgeService.materializeWorkspace(
 					agentId,
 					projectId,
-					resourceId,
 					workspaceRoot,
 					{ fileReferences: getRequiredFileReferences(parsedInput) },
 				);

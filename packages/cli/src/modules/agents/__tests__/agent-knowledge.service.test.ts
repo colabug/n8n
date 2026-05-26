@@ -32,7 +32,6 @@ jest.mock('@n8n/utils', () => ({
 
 const agentId = 'agent-1';
 const projectId = 'project-1';
-const resourceId = 'resource-1';
 
 function makeMulterFile(overrides: Partial<Express.Multer.File> = {}): Express.Multer.File {
 	return {
@@ -81,9 +80,9 @@ describe('AgentKnowledgeService', () => {
 	it('rejects files for agents outside the project', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue(null);
 
-		await expect(
-			service.uploadFiles(agentId, projectId, resourceId, [makeMulterFile()]),
-		).rejects.toThrow(NotFoundError);
+		await expect(service.uploadFiles(agentId, projectId, [makeMulterFile()])).rejects.toThrow(
+			NotFoundError,
+		);
 
 		expect(binaryDataService.store).not.toHaveBeenCalled();
 		expect(agentFileRepository.save).not.toHaveBeenCalled();
@@ -92,25 +91,23 @@ describe('AgentKnowledgeService', () => {
 	it('rejects listing files for agents outside the project', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue(null);
 
-		await expect(service.listFiles(agentId, projectId, resourceId)).rejects.toThrow(NotFoundError);
+		await expect(service.listFiles(agentId, projectId)).rejects.toThrow(NotFoundError);
 
-		expect(agentFileRepository.findByAgentIdAndResourceId).not.toHaveBeenCalled();
+		expect(agentFileRepository.findByAgentId).not.toHaveBeenCalled();
 	});
 
 	it('rejects deleting files for agents outside the project', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue(null);
 
-		await expect(service.deleteFile(agentId, projectId, resourceId, 'file-1')).rejects.toThrow(
-			NotFoundError,
-		);
+		await expect(service.deleteFile(agentId, projectId, 'file-1')).rejects.toThrow(NotFoundError);
 
-		expect(agentFileRepository.findByIdAgentIdAndResourceId).not.toHaveBeenCalled();
+		expect(agentFileRepository.findByIdAndAgentId).not.toHaveBeenCalled();
 		expect(binaryDataService.deleteManyByBinaryDataId).not.toHaveBeenCalled();
 	});
 
 	it('lists file rows for the agent', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([
+		agentFileRepository.findByAgentId.mockResolvedValue([
 			{
 				id: 'file-1',
 				agentId,
@@ -121,7 +118,7 @@ describe('AgentKnowledgeService', () => {
 			},
 		] as never);
 
-		await expect(service.listFiles(agentId, projectId, resourceId)).resolves.toEqual([
+		await expect(service.listFiles(agentId, projectId)).resolves.toEqual([
 			{
 				id: 'file-1',
 				agentId,
@@ -131,28 +128,12 @@ describe('AgentKnowledgeService', () => {
 				createdAt: '2026-05-24T12:00:00.000Z',
 			},
 		]);
-		expect(agentFileRepository.findByAgentIdAndResourceId).toHaveBeenCalledWith(
-			agentId,
-			resourceId,
-		);
-	});
-
-	it('does not list files from another resource', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([]);
-
-		await expect(service.listFiles(agentId, projectId, resourceId)).resolves.toEqual([]);
-
-		expect(agentFileRepository.findByAgentIdAndResourceId).toHaveBeenCalledWith(
-			agentId,
-			resourceId,
-		);
-		expect(agentFileRepository.findAllByAgentId).not.toHaveBeenCalled();
+		expect(agentFileRepository.findByAgentId).toHaveBeenCalledWith(agentId);
 	});
 
 	it('lists workspace file metadata without reading binary data', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([
+		agentFileRepository.findByAgentId.mockResolvedValue([
 			{
 				id: 'file-1',
 				agentId,
@@ -164,7 +145,7 @@ describe('AgentKnowledgeService', () => {
 			},
 		] as never);
 
-		await expect(service.listWorkspaceFiles(agentId, projectId, resourceId)).resolves.toEqual([
+		await expect(service.listWorkspaceFiles(agentId, projectId)).resolves.toEqual([
 			expect.objectContaining({
 				id: 'file-1',
 				fileName: 'document.txt',
@@ -178,13 +159,13 @@ describe('AgentKnowledgeService', () => {
 	it('stores binary data and creates file rows for the agent', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
 
-		const [file] = await service.uploadFiles(agentId, projectId, resourceId, [makeMulterFile()]);
+		const [file] = await service.uploadFiles(agentId, projectId, [makeMulterFile()]);
 
 		expect(binaryDataService.store).toHaveBeenCalledWith(
 			expect.objectContaining({
 				sourceType: 'agent_file',
 				sourceId: 'file-1',
-				pathSegments: ['agents', agentId, 'resources', resourceId, 'files', 'file-1'],
+				pathSegments: ['agents', agentId, 'files', 'file-1'],
 			}),
 			Buffer.from('hello'),
 			expect.objectContaining({
@@ -198,7 +179,6 @@ describe('AgentKnowledgeService', () => {
 			expect.objectContaining({
 				id: 'file-1',
 				agentId,
-				resourceId,
 				binaryDataId: 'binary-1',
 				fileName: 'document.txt',
 				mimeType: 'text/plain',
@@ -229,7 +209,7 @@ describe('AgentKnowledgeService', () => {
 
 		try {
 			await expect(
-				service.uploadFiles(agentId, projectId, resourceId, [
+				service.uploadFiles(agentId, projectId, [
 					makeMulterFile({
 						originalname: 'first.txt',
 						buffer: undefined as never,
@@ -258,7 +238,7 @@ describe('AgentKnowledgeService', () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
 
 		await expect(
-			service.uploadFiles(agentId, projectId, resourceId, [
+			service.uploadFiles(agentId, projectId, [
 				makeMulterFile({ originalname: `${'a'.repeat(256)}.txt` }),
 			]),
 		).rejects.toThrow(BadRequestError);
@@ -271,7 +251,7 @@ describe('AgentKnowledgeService', () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
 
 		await expect(
-			service.uploadFiles(agentId, projectId, resourceId, [
+			service.uploadFiles(agentId, projectId, [
 				makeMulterFile({ mimetype: 'text/'.concat('a'.repeat(256)) }),
 			]),
 		).rejects.toThrow(BadRequestError);
@@ -282,7 +262,7 @@ describe('AgentKnowledgeService', () => {
 
 	it('deletes the file row and stored binary data for the agent', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByIdAgentIdAndResourceId.mockResolvedValue({
+		agentFileRepository.findByIdAndAgentId.mockResolvedValue({
 			id: 'file-1',
 			agentId,
 			binaryDataId: 'binary-1',
@@ -292,34 +272,17 @@ describe('AgentKnowledgeService', () => {
 			createdAt: new Date('2026-05-24T12:00:00.000Z'),
 		} as never);
 
-		await service.deleteFile(agentId, projectId, resourceId, 'file-1');
+		await service.deleteFile(agentId, projectId, 'file-1');
 
-		expect(agentFileRepository.delete).toHaveBeenCalledWith({ id: 'file-1', agentId, resourceId });
+		expect(agentFileRepository.delete).toHaveBeenCalledWith({ id: 'file-1', agentId });
 		expect(binaryDataService.deleteManyByBinaryDataId).toHaveBeenCalledWith(['binary-1']);
 		expect(binaryDataService.deleteManyByBinaryDataId.mock.invocationCallOrder[0]).toBeLessThan(
 			agentFileRepository.delete.mock.invocationCallOrder[0],
 		);
 	});
 
-	it('does not delete files from another resource', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByIdAgentIdAndResourceId.mockResolvedValue(null);
-
-		await expect(service.deleteFile(agentId, projectId, resourceId, 'file-1')).rejects.toThrow(
-			NotFoundError,
-		);
-
-		expect(agentFileRepository.findByIdAgentIdAndResourceId).toHaveBeenCalledWith(
-			'file-1',
-			agentId,
-			resourceId,
-		);
-		expect(agentFileRepository.delete).not.toHaveBeenCalled();
-		expect(binaryDataService.deleteManyByBinaryDataId).not.toHaveBeenCalled();
-	});
-
 	it('deletes all stored binary data before deleting agent file rows', async () => {
-		agentFileRepository.findAllByAgentId.mockResolvedValue([
+		agentFileRepository.findByAgentId.mockResolvedValue([
 			{
 				id: 'file-1',
 				agentId,
@@ -354,11 +317,9 @@ describe('AgentKnowledgeService', () => {
 
 	it('rejects deleting files that are not attached to the agent', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByIdAgentIdAndResourceId.mockResolvedValue(null);
+		agentFileRepository.findByIdAndAgentId.mockResolvedValue(null);
 
-		await expect(service.deleteFile(agentId, projectId, resourceId, 'file-1')).rejects.toThrow(
-			NotFoundError,
-		);
+		await expect(service.deleteFile(agentId, projectId, 'file-1')).rejects.toThrow(NotFoundError);
 
 		expect(agentFileRepository.delete).not.toHaveBeenCalled();
 		expect(binaryDataService.deleteManyByBinaryDataId).not.toHaveBeenCalled();
@@ -368,7 +329,7 @@ describe('AgentKnowledgeService', () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
 		mockGetText.mockResolvedValue({ text: 'Extracted PDF text', total: 1 });
 
-		const [file] = await service.uploadFiles(agentId, projectId, resourceId, [
+		const [file] = await service.uploadFiles(agentId, projectId, [
 			makeMulterFile({
 				originalname: 'document.pdf',
 				mimetype: 'application/pdf',
@@ -411,7 +372,7 @@ describe('AgentKnowledgeService', () => {
 		mockGetText.mockResolvedValue({ text: '   ', total: 1 });
 
 		await expect(
-			service.uploadFiles(agentId, projectId, resourceId, [
+			service.uploadFiles(agentId, projectId, [
 				makeMulterFile({
 					originalname: 'empty.pdf',
 					mimetype: 'application/pdf',
@@ -427,7 +388,7 @@ describe('AgentKnowledgeService', () => {
 
 	it('materializes stored PDF text as a searchable text file', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([
+		agentFileRepository.findByAgentId.mockResolvedValue([
 			{
 				id: 'file-1',
 				agentId,
@@ -441,12 +402,7 @@ describe('AgentKnowledgeService', () => {
 		binaryDataService.getAsBuffer.mockResolvedValue(Buffer.from('stored PDF text'));
 		const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-service-'));
 		try {
-			const files = await service.materializeWorkspace(
-				agentId,
-				projectId,
-				resourceId,
-				workspaceRoot,
-			);
+			const files = await service.materializeWorkspace(agentId, projectId, workspaceRoot);
 
 			expect(files).toEqual([
 				expect.objectContaining({
@@ -466,7 +422,7 @@ describe('AgentKnowledgeService', () => {
 
 	it('materializes CSV files as searchable text', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([
+		agentFileRepository.findByAgentId.mockResolvedValue([
 			{
 				id: 'file-1',
 				agentId,
@@ -480,12 +436,7 @@ describe('AgentKnowledgeService', () => {
 		binaryDataService.getAsBuffer.mockResolvedValue(Buffer.from('name,age\nAlice,30\n'));
 		const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-service-'));
 		try {
-			const files = await service.materializeWorkspace(
-				agentId,
-				projectId,
-				resourceId,
-				workspaceRoot,
-			);
+			const files = await service.materializeWorkspace(agentId, projectId, workspaceRoot);
 
 			expect(files).toEqual([
 				expect.objectContaining({
@@ -503,28 +454,9 @@ describe('AgentKnowledgeService', () => {
 		}
 	});
 
-	it('does not materialize files from another resource', async () => {
-		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([]);
-		const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-service-'));
-		try {
-			await expect(
-				service.materializeWorkspace(agentId, projectId, resourceId, workspaceRoot),
-			).resolves.toEqual([]);
-
-			expect(agentFileRepository.findByAgentIdAndResourceId).toHaveBeenCalledWith(
-				agentId,
-				resourceId,
-			);
-			expect(binaryDataService.getAsBuffer).not.toHaveBeenCalled();
-		} finally {
-			await rm(workspaceRoot, { recursive: true, force: true });
-		}
-	});
-
 	it('materializes only requested files when file references are provided', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([
+		agentFileRepository.findByAgentId.mockResolvedValue([
 			{
 				id: 'file-1',
 				agentId,
@@ -547,15 +479,9 @@ describe('AgentKnowledgeService', () => {
 		binaryDataService.getAsBuffer.mockResolvedValue(Buffer.from('name,age\nAlice,30\n'));
 		const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-service-'));
 		try {
-			const files = await service.materializeWorkspace(
-				agentId,
-				projectId,
-				resourceId,
-				workspaceRoot,
-				{
-					fileReferences: ['file-1'],
-				},
-			);
+			const files = await service.materializeWorkspace(agentId, projectId, workspaceRoot, {
+				fileReferences: ['file-1'],
+			});
 
 			expect(files).toEqual([expect.objectContaining({ id: 'file-1' })]);
 			expect(binaryDataService.getAsBuffer).toHaveBeenCalledTimes(1);
@@ -569,7 +495,7 @@ describe('AgentKnowledgeService', () => {
 
 	it('materializes files requested by display file name', async () => {
 		agentRepository.findByIdAndProjectId.mockResolvedValue({ id: agentId, projectId } as never);
-		agentFileRepository.findByAgentIdAndResourceId.mockResolvedValue([
+		agentFileRepository.findByAgentId.mockResolvedValue([
 			{
 				id: 'file-1',
 				agentId,
@@ -592,15 +518,9 @@ describe('AgentKnowledgeService', () => {
 		binaryDataService.getAsBuffer.mockResolvedValue(Buffer.from('name,age\nAlice,30\n'));
 		const workspaceRoot = await mkdtemp(path.join(tmpdir(), 'agent-knowledge-service-'));
 		try {
-			const files = await service.materializeWorkspace(
-				agentId,
-				projectId,
-				resourceId,
-				workspaceRoot,
-				{
-					fileReferences: ['data.csv'],
-				},
-			);
+			const files = await service.materializeWorkspace(agentId, projectId, workspaceRoot, {
+				fileReferences: ['data.csv'],
+			});
 
 			expect(files).toEqual([expect.objectContaining({ id: 'file-1', fileName: 'data.csv' })]);
 			expect(binaryDataService.getAsBuffer).toHaveBeenCalledTimes(1);

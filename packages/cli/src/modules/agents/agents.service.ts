@@ -97,7 +97,6 @@ interface InjectRuntimeDependenciesParams {
 	agent: RuntimeAgent;
 	agentId: string;
 	projectId: string;
-	resourceId: string;
 	credentialProvider: CredentialProvider;
 	nodeToolsEnabled: boolean;
 	/** Chat platform the runtime is being reconstructed for — drives the rich_interaction tool's capability profile. */
@@ -172,7 +171,6 @@ interface GetRuntimeParams {
 	agentId: string;
 	projectId: string;
 	n8nUserId?: string;
-	resourceId: string;
 	integrationType?: string;
 	/** When true, load the published snapshot; n8nUserId is derived from publishedById when omitted. */
 	usePublishedVersion?: boolean;
@@ -182,8 +180,8 @@ interface GetRuntimeParams {
 export class AgentsService {
 	/**
 	 * Cached agent runtimes.  Keys follow the pattern:
-	 *   Draft:     `{agentId}:draft:{n8nUserId}:{resourceId}`
-	 *   Published: `{agentId}:published:{resourceId}[:{integrationType}]`
+	 *   Draft:     `{agentId}:draft:{n8nUserId}`
+	 *   Published: `{agentId}:published[:{integrationType}]`
 	 *
 	 * TTL = 30 minutes — entries are evicted when the agent is idle so that
 	 * memory is freed without requiring an explicit shutdown step.
@@ -198,13 +196,12 @@ export class AgentsService {
 
 	private computeRuntimeCacheKey(params: GetRuntimeParams): string {
 		if (params.usePublishedVersion) {
-			const parts = [params.agentId, 'published', params.resourceId];
+			const parts = [params.agentId, 'published'];
 			if (params.integrationType) parts.push(params.integrationType);
 			return parts.join(':');
 		}
 		const parts = [params.agentId, 'draft'];
 		if (params.n8nUserId) parts.push(params.n8nUserId);
-		parts.push(params.resourceId);
 		return parts.join(':');
 	}
 
@@ -670,7 +667,6 @@ export class AgentsService {
 			agentData,
 			credentialProvider,
 			n8nUserId,
-			params.resourceId,
 			integrationType,
 		);
 
@@ -729,15 +725,8 @@ export class AgentsService {
 	 * (opt-in, defaults to false) — see {@link shouldAttachNodeTools}.
 	 */
 	private async injectRuntimeDependencies(params: InjectRuntimeDependenciesParams): Promise<void> {
-		const {
-			agent,
-			agentId,
-			projectId,
-			resourceId,
-			credentialProvider,
-			nodeToolsEnabled,
-			integrationType,
-		} = params;
+		const { agent, agentId, projectId, credentialProvider, nodeToolsEnabled, integrationType } =
+			params;
 
 		// Inject get_environment unconditionally. It surfaces info the model
 		// can't know on its own (current date, instance timezone, day of week)
@@ -759,7 +748,6 @@ export class AgentsService {
 				createSearchKnowledgeTool({
 					agentId,
 					projectId,
-					resourceId,
 					knowledgeService: this.agentKnowledgeService,
 					commandService: this.agentKnowledgeCommandService,
 				}),
@@ -848,7 +836,6 @@ export class AgentsService {
 		const runtime = await this.getRuntime({
 			agentId,
 			projectId,
-			resourceId: memoryScope.resourceId,
 			usePublishedVersion: true,
 			integrationType,
 		});
@@ -984,12 +971,7 @@ export class AgentsService {
 	async *executeForChat(config: ExecuteForChatConfig): AsyncGenerator<StreamChunk> {
 		const { agentId, projectId, message, userId, memory } = config;
 
-		const runtime = await this.getRuntime({
-			agentId,
-			projectId,
-			n8nUserId: userId,
-			resourceId: memory.resourceId,
-		});
+		const runtime = await this.getRuntime({ agentId, projectId, n8nUserId: userId });
 
 		yield* this.streamChatResponse({
 			agentInstance: runtime.agent,
@@ -1042,7 +1024,6 @@ export class AgentsService {
 		const runtime = await this.getRuntime({
 			agentId,
 			projectId,
-			resourceId: memory.resourceId,
 			integrationType,
 			usePublishedVersion: true,
 		});
@@ -1075,7 +1056,6 @@ export class AgentsService {
 		const runtime = await this.getRuntime({
 			agentId,
 			projectId,
-			resourceId: memory.resourceId,
 			integrationType: AGENT_SCHEDULE_TRIGGER_TYPE,
 			usePublishedVersion: true,
 		});
@@ -1160,7 +1140,6 @@ export class AgentsService {
 		agentEntity: Agent,
 		credentialProvider: CredentialProvider,
 		userId: string,
-		resourceId: string,
 	): Promise<{ ok: boolean; agent?: BuiltAgent; error?: string }> {
 		if (!agentEntity.schema) {
 			return { ok: false, error: 'Agent has no JSON config. Create a config first.' };
@@ -1171,7 +1150,6 @@ export class AgentsService {
 				agentEntity,
 				credentialProvider,
 				userId,
-				resourceId,
 			);
 			return { ok: true, agent: reconstructed as BuiltAgent };
 		} catch (e) {
@@ -1218,12 +1196,7 @@ export class AgentsService {
 			projectId,
 		);
 
-		const compiled = await this.compileIsolated(
-			agentEntity,
-			credentialProvider,
-			userId,
-			executionId,
-		);
+		const compiled = await this.compileIsolated(agentEntity, credentialProvider, userId);
 		if (!compiled.ok || !compiled.agent) {
 			throw new OperationalError(`Failed to compile agent: ${compiled.error ?? 'unknown error'}`);
 		}
@@ -1797,7 +1770,6 @@ export class AgentsService {
 		agentEntity: Agent,
 		credentialProvider: CredentialProvider,
 		userId: string,
-		resourceId: string,
 		integrationType?: string,
 	): Promise<{ agent: RuntimeAgent; toolRegistry: ToolRegistry }> {
 		const config = agentEntity.schema;
@@ -1839,7 +1811,6 @@ export class AgentsService {
 			agent: reconstructed,
 			agentId: agentEntity.id,
 			projectId: agentEntity.projectId,
-			resourceId,
 			credentialProvider,
 			nodeToolsEnabled: this.shouldAttachNodeTools(config.config),
 			integrationType,

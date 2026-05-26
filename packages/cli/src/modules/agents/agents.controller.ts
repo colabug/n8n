@@ -395,7 +395,7 @@ export class AgentsController {
 		_res: Response,
 		@Param('agentId') agentId: string,
 	) {
-		return await this.agentKnowledgeService.listFiles(agentId, req.params.projectId, req.user.id);
+		return await this.agentKnowledgeService.listFiles(agentId, req.params.projectId);
 	}
 
 	@Post('/:agentId/files', {
@@ -424,12 +424,7 @@ export class AgentsController {
 			throw new BadRequestError('No files uploaded');
 		}
 
-		return await this.agentKnowledgeService.uploadFiles(
-			agentId,
-			req.params.projectId,
-			req.user.id,
-			files,
-		);
+		return await this.agentKnowledgeService.uploadFiles(agentId, req.params.projectId, files);
 	}
 
 	@Delete('/:agentId/files/:fileId')
@@ -440,7 +435,7 @@ export class AgentsController {
 		@Param('agentId') agentId: string,
 		@Param('fileId') fileId: string,
 	) {
-		await this.agentKnowledgeService.deleteFile(agentId, req.params.projectId, req.user.id, fileId);
+		await this.agentKnowledgeService.deleteFile(agentId, req.params.projectId, fileId);
 		return { success: true };
 	}
 
