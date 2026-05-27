@@ -4,7 +4,7 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
-import { NodeConnectionTypes } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { pokemonFields, pokemonOperations } from './PokemonDescription';
 
@@ -28,7 +28,6 @@ export class Pokemon implements INodeType {
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-		// Implementation will be added in subsequent TDD cycles
-		return [[]];
+		throw new NodeOperationError(this.getNode(), 'Not yet implemented');
 	}
 }
