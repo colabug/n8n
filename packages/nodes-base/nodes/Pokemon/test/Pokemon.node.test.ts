@@ -1,3 +1,4 @@
+import type { IExecuteFunctions } from 'n8n-workflow';
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { Pokemon } from '../Pokemon.node';
@@ -446,7 +447,75 @@ describe('Pokemon Node — Cycle 10: pagination circuit breaker', () => {
 	});
 });
 
-// ─── Cycle 11: execute() getAll with default limit ───────────────────────────
+// ─── Execute helpers ──────────────────────────────────────────────────────────
+
+type ParameterMap = Record<string, unknown>;
+
+function makeExecuteContext(params: ParameterMap, mockHttpRequest: jest.Mock) {
+	const inputData = [{ json: {} }];
+	return {
+		getInputData: () => inputData,
+		getNodeParameter: (name: string, _index: number, fallback?: unknown) => {
+			return name in params ? params[name] : fallback;
+		},
+		getNode: () => ({
+			name: 'Pokemon',
+			type: 'n8n-nodes-base.pokemon',
+			typeVersion: 1,
+			id: '1',
+			position: [0, 0] as [number, number],
+		}),
+		continueOnFail: () => false,
+		helpers: {
+			httpRequest: mockHttpRequest,
+			constructExecutionMetaData: (data: unknown[], opts: { itemData: { item: number } }) =>
+				data.map((d) => ({ ...((d as Record<string, unknown>) ?? {}), pairedItem: opts.itemData })),
+			returnJsonArray: (data: unknown[]) => data.map((d) => ({ json: d })),
+		},
+	} as unknown as IExecuteFunctions;
+}
+
+// ─── Cycle 11 (US-2): execute() get with simplify=true ───────────────────────
+
+describe('Pokemon Node — Cycle 11: execute get simplified', () => {
+	it('should return simplified pikachu data when simplify=true', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(PIKACHU_DETAIL);
+		const ctx = makeExecuteContext(
+			{ operation: 'get', nameOrId: 'pikachu', simplify: true },
+			mockHttpRequest,
+		);
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+
+		expect(result).toHaveLength(1);
+		expect(result[0]).toHaveLength(1);
+		const item = result[0][0].json as Record<string, unknown>;
+		expect(item.id).toBe(25);
+		expect(item.name).toBe('pikachu');
+		expect(item.types).toEqual(['electric']);
+		expect((item.stats as Record<string, number>).speed).toBe(90);
+		expect(item.sprite).toBeTruthy();
+		expect(item).not.toHaveProperty('moves');
+	});
+
+	it('should call GET /pokemon/pikachu', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(PIKACHU_DETAIL);
+		const ctx = makeExecuteContext(
+			{ operation: 'get', nameOrId: 'pikachu', simplify: true },
+			mockHttpRequest,
+		);
+		const node = new Pokemon();
+
+		await node.execute.call(ctx);
+
+		expect(mockHttpRequest).toHaveBeenCalledWith(
+			expect.objectContaining({ url: 'https://pokeapi.co/api/v2/pokemon/pikachu' }),
+		);
+	});
+});
+
+// ─── Cycle 11 (US-1): execute() getAll with default limit ───────────────────────────
 
 describe('Pokemon Node — Cycle 11: execute getAll default limit', () => {
 	const makeGetAllContext = (mockHttpRequest: jest.Mock, limit = 20, returnAll = false) =>
