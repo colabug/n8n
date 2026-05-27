@@ -101,3 +101,54 @@ describe('Pokemon Node — Cycle 1: description', () => {
 		expect(showOps).not.toContain('getAll');
 	});
 });
+
+describe('Pokemon Node — Cycle 2: typed interfaces', () => {
+	it('should export IPokemonListResponse interface (compiles with correct shape)', () => {
+		// Import the type to ensure it exists and compiles
+		// This test verifies the TypeScript interface exists and has the expected shape
+		const mockResponse: import('../GenericFunctions').IPokemonListResponse = {
+			count: 1302,
+			next: 'https://pokeapi.co/api/v2/pokemon?offset=20&limit=20',
+			previous: null,
+			results: [{ name: 'bulbasaur', url: 'https://pokeapi.co/api/v2/pokemon/1/' }],
+		};
+		expect(mockResponse.count).toBe(1302);
+		expect(mockResponse.results).toHaveLength(1);
+		expect(mockResponse.results[0].name).toBe('bulbasaur');
+	});
+
+	it('should export IPokemonDetailResponse interface', () => {
+		const mockDetail: import('../GenericFunctions').IPokemonDetailResponse = {
+			id: 25,
+			name: 'pikachu',
+			height: 4,
+			weight: 60,
+			base_experience: 112,
+			types: [{ slot: 1, type: { name: 'electric', url: '' } }],
+			abilities: [{ ability: { name: 'static', url: '' }, is_hidden: false, slot: 1 }],
+			stats: [{ base_stat: 35, effort: 0, stat: { name: 'hp', url: '' } }],
+			sprites: { front_default: 'https://example.com/25.png' },
+			species: { name: 'pikachu', url: '' },
+			moves: [],
+		};
+		expect(mockDetail.id).toBe(25);
+		expect(mockDetail.types[0].type.name).toBe('electric');
+	});
+
+	it('should export IPokemonSimplified interface', () => {
+		const mockSimplified: import('../GenericFunctions').IPokemonSimplified = {
+			id: 25,
+			name: 'pikachu',
+			height: 4,
+			weight: 60,
+			base_experience: 112,
+			types: ['electric'],
+			abilities: ['static', 'lightning-rod'],
+			stats: { hp: 35, speed: 90 },
+			sprite: 'https://example.com/25.png',
+			species: 'pikachu',
+		};
+		expect(mockSimplified.types).toEqual(['electric']);
+		expect(mockSimplified.stats['hp']).toBe(35);
+	});
+});
