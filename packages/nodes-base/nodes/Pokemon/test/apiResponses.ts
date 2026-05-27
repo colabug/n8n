@@ -69,23 +69,6 @@ export const BULBASAUR_DETAIL: IPokemonDetailResponse = {
 	moves: [],
 };
 
-export const MR_MIME_DETAIL: IPokemonDetailResponse = {
-	id: 122,
-	name: 'mr-mime',
-	height: 13,
-	weight: 545,
-	base_experience: 161,
-	types: [
-		{ slot: 1, type: { name: 'psychic', url: '' } },
-		{ slot: 2, type: { name: 'fairy', url: '' } },
-	],
-	abilities: [{ ability: { name: 'soundproof', url: '' }, is_hidden: false, slot: 1 }],
-	stats: [{ base_stat: 40, effort: 0, stat: { name: 'hp', url: '' } }],
-	sprites: { front_default: null },
-	species: { name: 'mr-mime', url: '' },
-	moves: [],
-};
-
 export const LIST_PAGE_1: IPokemonListResponse = {
 	count: 3,
 	next: 'https://pokeapi.co/api/v2/pokemon?offset=2&limit=2',
