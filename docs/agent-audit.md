@@ -279,3 +279,51 @@ Audit all docs/ files and sync with final implementation state. Directed by Lead
 
 ### Corrections Received
 None — initial pass.
+
+---
+
+## au-submission (take-home auditor)
+**Type:** Auditor | **Model:** Opus | **Team:** pokemon-build
+**Spawned:** 2026-05-27T16:30:00Z | **Terminated:** 2026-05-27T16:32:54Z
+
+### Task
+Assess the full Pokemon node submission as a senior n8n Product Engineer.
+
+### Findings
+- **Verdict: Strong Hire**
+- Cited: zero any types, pagination circuit breaker, input validation, 68 tests across 3 layers (unit + workflow + E2E), production engineering mindset
+- Incorrectly flagged missing package.json registration (it IS registered at line 733 — Lead corrected)
+- Minor feedback: over-testing of static metadata, missing nock cleanup, E2E hits real API
+
+---
+
+## pm-story (APPROACH.md writer)
+**Type:** PM/Storyteller | **Model:** Opus | **Team:** pokemon-build
+**Spawned:** 2026-05-27T16:38:00Z | **Terminated:** 2026-05-27T16:52:48Z
+
+### Task
+Interview PO, then craft APPROACH.md for take-home submission.
+
+### Decisions & Findings
+- Drafted 5 interview questions for PO (headline, proudest moment, harness depth, tone, future items)
+- PO directed: systems thinker headline, concise, no deep technical bluffing
+- Produced ~1500 word draft, committed to feature/pokemon-node
+- PO requested rewrite — too long, needed assumptions section
+
+---
+
+## b-submission (APPROACH rewrite + PROMPTS-SUMMARY + audit)
+**Type:** Builder | **Model:** Opus | **Team:** pokemon-build
+**Spawned:** 2026-05-27T16:55:00Z | **Terminated:** 2026-05-27T17:12:23Z
+
+### Task
+Rewrite APPROACH.md to ~955 words, create PROMPTS-SUMMARY.md (~544 words, thematic), audit both for authenticity.
+
+### Decisions & Findings
+- APPROACH.md restructured into 5 required sections, removed deep technical claims
+- PROMPTS-SUMMARY.md organized as 5 thematic chapters (not chronological)
+- Verified every technical claim against actual code (grep-confirmed)
+- Softened "built on agent teams" to "built using Claude Code" — PO corrected this back (harness WAS built on the released feature)
+
+### Corrections Received
+1. **PO:** "wrong on this one, built after released" — restored "built on Claude Code's agent teams feature"

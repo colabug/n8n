@@ -521,4 +521,80 @@ Answered 4 clarification questions:
 
 ---
 
-## Ongoing — Prompts will be appended as the session continues.
+## Prompt 48 — Senior Code Review (PO → Lead)
+**Timestamp:** 2026-05-27 ~17:00
+**From:** Corey (PO)
+
+> where are the coding standards and best practices for node (and react? is it vue?). Make sure we are following them and do a code review as a senior engineer to catch issues and improve readability.
+
+*Context: Spawned Opus-level senior reviewer. Found 3 blockers (broken workflow test, duplicate constant, type casts), 5 improvements. Confirmed n8n uses Vue not React. All issues fixed in PR #12.*
+
+---
+
+## Prompt 49 — Fix Review Feedback + E2E (PO → Lead)
+**Timestamp:** 2026-05-27 ~17:05
+**From:** Corey (PO)
+
+> yes, fix all the review feedback and run the tests. Then build end to end tests.
+
+*Context: Spawned b-fixes builder. Fixed all blockers + improvements. Added 5 Playwright E2E tests. 68 tests passing.*
+
+---
+
+## Prompt 50 — Edge Case Discovery (PO → Lead)
+**Timestamp:** 2026-05-27 ~17:55
+**From:** Corey (PO)
+
+> [Screenshot of "bulbasaurus" 404 error] feel like we're not handling an edge case here
+
+*Context: PO found the 404 error message was too generic. Fixed to show "Pokémon 'bulbasaurus' not found. Check the spelling." Also found and fixed whitespace trimming bug.*
+
+---
+
+## Prompt 51 — Submission Auditor (PO → Lead)
+**Timestamp:** 2026-05-27 ~18:30
+**From:** Corey (PO)
+
+> spin up an auditor agent who is going to assess how well I completed the assignment as if I was an experienced node engineer.
+
+*Context: Opus auditor assessed the full submission. Verdict: "Strong Hire." Cited: zero any types, pagination circuit breaker, input validation, 68 tests across 3 layers, production engineering mindset.*
+
+---
+
+## Prompt 52 — APPROACH.md Story (PO → Lead)
+**Timestamp:** 2026-05-27 ~18:35
+**From:** Corey (PO)
+
+> I want to make two deliverables... spin up an agent to put the story together (maybe to interview me about the main points I want to make first)
+
+*Context: Spawned pm-story (Opus) to interview PO and craft APPROACH.md. PO directed: systems thinker as headline, concise, remove deep technical claims that could be tells, add harness update to "with more time."*
+
+---
+
+## Prompt 53 — Authenticity Check (PO → Lead)
+**Timestamp:** 2026-05-27 ~18:50
+**From:** Corey (PO)
+
+> make sure I don't sound like I'm bullshitting... I don't want deep technical claims unless they are really good proof points
+
+*Context: Rewrote APPROACH.md to ~955 words. Every technical claim verified against actual code. Added PROMPTS-SUMMARY.md (544 words, thematic). Audited for authenticity.*
+
+---
+
+## Prompt 54 — Agent Teams Correction (PO → Lead)
+**Timestamp:** 2026-05-27 ~18:55
+**From:** Corey (PO)
+
+> wrong on this one, built after released because it was released
+
+*Context: Corrected "built using Claude Code" to "built on Claude Code's agent teams feature." The harness was built after the feature released, not before.*
+
+---
+
+## Prompt 55 — Final Submission Prep (PO → Lead)
+**Timestamp:** 2026-05-27 ~19:00
+**From:** Corey (PO)
+
+> For the final submission, I want the following files... push all prompts and other bits of documentation to the mega branch. I'll do final edits for submission on the clean branch.
+
+*Context: Final deliverables defined: BDD tests, PRD, ADR, code files, APPROACH.md, PROMPTS-SUMMARY.md on a clean branch. Mega branch keeps full build history.*
