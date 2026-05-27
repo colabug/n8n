@@ -54,9 +54,10 @@ export class Pokemon implements INodeType {
 					const responseData = (await pokemonApiRequest.call(this, url)) as IPokemonDetailResponse;
 					const outputData = simplify ? simplifyPokemonData(responseData) : responseData;
 					returnData.push(
-						...this.helpers.constructExecutionMetaData(this.helpers.returnJsonArray([outputData]), {
-							itemData: { item: i },
-						}),
+						...this.helpers.constructExecutionMetaData(
+							this.helpers.returnJsonArray([outputData as unknown as IDataObject]),
+							{ itemData: { item: i } },
+						),
 					);
 				} catch (error) {
 					if (this.continueOnFail()) {

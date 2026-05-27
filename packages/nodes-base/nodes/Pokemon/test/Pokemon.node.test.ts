@@ -178,7 +178,7 @@ describe('Pokemon Node — Cycle 3: pokemonApiRequest URL and options', () => {
 		const mockContext = {
 			helpers: { httpRequest: mockHttpRequest },
 			getNode: () => ({ name: 'Pokemon', type: 'pokemon' }),
-		} as unknown as Parameters<typeof pokemonApiRequest>[0];
+		} as unknown as IExecuteFunctions;
 
 		await pokemonApiRequest.call(mockContext, 'https://pokeapi.co/api/v2/pokemon/pikachu');
 
@@ -196,7 +196,7 @@ describe('Pokemon Node — Cycle 3: pokemonApiRequest URL and options', () => {
 		const mockContext = {
 			helpers: { httpRequest: mockHttpRequest },
 			getNode: () => ({ name: 'Pokemon', type: 'pokemon' }),
-		} as unknown as Parameters<typeof pokemonApiRequest>[0];
+		} as unknown as IExecuteFunctions;
 
 		await pokemonApiRequest.call(mockContext, 'https://pokeapi.co/api/v2/pokemon/pikachu');
 
@@ -221,7 +221,7 @@ describe('Pokemon Node — Cycle 4: pokemonApiRequest wraps errors', () => {
 				id: '1',
 				position: [0, 0] as [number, number],
 			}),
-		} as unknown as Parameters<typeof pokemonApiRequest>[0];
+		} as unknown as IExecuteFunctions;
 
 		await expect(
 			pokemonApiRequest.call(mockContext, 'https://pokeapi.co/api/v2/pokemon/pikachu'),
@@ -241,7 +241,7 @@ describe('Pokemon Node — Cycle 5: validateNameOrId', () => {
 				id: '1',
 				position: [0, 0] as [number, number],
 			}),
-		}) as unknown as Parameters<typeof validateNameOrId>[0];
+		}) as unknown as IExecuteFunctions;
 
 	it('should throw NodeOperationError for path traversal input', () => {
 		expect(() => validateNameOrId(makeContext(), '../../admin', 0)).toThrow(NodeOperationError);
@@ -355,7 +355,7 @@ describe('Pokemon Node — Cycle 9: pokemonApiRequestAllPages pagination', () =>
 				id: '1',
 				position: [0, 0] as [number, number],
 			}),
-		}) as unknown as Parameters<typeof pokemonApiRequestAllPages>[0];
+		}) as unknown as IExecuteFunctions;
 
 	it('should combine results from two pages', async () => {
 		const mockHttpRequest = jest
@@ -417,7 +417,7 @@ describe('Pokemon Node — Cycle 10: pagination circuit breaker', () => {
 				id: '1',
 				position: [0, 0] as [number, number],
 			}),
-		} as unknown as Parameters<typeof pokemonApiRequestAllPages>[0];
+		} as unknown as IExecuteFunctions;
 
 		await expect(pokemonApiRequestAllPages.call(mockContext)).rejects.toThrow(NodeOperationError);
 	});
@@ -439,7 +439,7 @@ describe('Pokemon Node — Cycle 10: pagination circuit breaker', () => {
 				id: '1',
 				position: [0, 0] as [number, number],
 			}),
-		} as unknown as Parameters<typeof pokemonApiRequestAllPages>[0];
+		} as unknown as IExecuteFunctions;
 
 		await expect(pokemonApiRequestAllPages.call(mockContext)).rejects.toThrow();
 		// Should not exceed circuit breaker limit (50 pages)
@@ -732,7 +732,7 @@ describe('Pokemon Node — validateNameOrId lowercase normalization', () => {
 				id: '1',
 				position: [0, 0] as [number, number],
 			}),
-		}) as unknown as Parameters<typeof validateNameOrId>[0];
+		}) as unknown as IExecuteFunctions;
 
 	it('should return lowercased name for mixed-case input', () => {
 		expect(validateNameOrId(makeContext(), 'Pikachu', 0)).toBe('pikachu');
