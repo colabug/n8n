@@ -71,11 +71,15 @@ const PAGINATION_CIRCUIT_BREAKER_LIMIT = 50;
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
+/**
+ * Validate and normalize a Pokemon name or ID.
+ * Returns the lowercased value — PokeAPI requires lowercase names.
+ */
 export function validateNameOrId(
 	context: IExecuteFunctions,
 	nameOrId: string,
 	itemIndex: number,
-): void {
+): string {
 	if (!nameOrId || nameOrId.trim().length === 0) {
 		throw new NodeOperationError(context.getNode(), 'Pokemon name or ID cannot be empty.', {
 			itemIndex,
@@ -88,6 +92,17 @@ export function validateNameOrId(
 			{ itemIndex },
 		);
 	}
+	return nameOrId.toLowerCase();
+}
+
+// ─── Limit Clamping ──────────────────────────────────────────────────────────
+
+/**
+ * Clamp a limit value to 1..100. Expression inputs bypass typeOptions min/max,
+ * so this runtime guard is required (ADR D12).
+ */
+export function clampLimit(limit: number): number {
+	return Math.min(Math.max(1, limit), 100);
 }
 
 // ─── HTTP Helper ──────────────────────────────────────────────────────────────
