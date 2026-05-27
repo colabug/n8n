@@ -1,6 +1,19 @@
-import { NodeConnectionTypes } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { Pokemon } from '../Pokemon.node';
+import {
+	pokemonApiRequest,
+	pokemonApiRequestAllPages,
+	simplifyPokemonData,
+	validateNameOrId,
+} from '../GenericFunctions';
+import {
+	PIKACHU_DETAIL,
+	PIKACHU_DETAIL_NULL_SPRITE,
+	BULBASAUR_DETAIL,
+	LIST_PAGE_1,
+	LIST_PAGE_2,
+} from './apiResponses';
 
 describe('Pokemon Node — Cycle 1: description', () => {
 	let node: Pokemon;
@@ -150,5 +163,64 @@ describe('Pokemon Node — Cycle 2: typed interfaces', () => {
 		};
 		expect(mockSimplified.types).toEqual(['electric']);
 		expect(mockSimplified.stats['hp']).toBe(35);
+	});
+});
+
+// ─── Cycle 3: pokemonApiRequest calls correct URL ─────────────────────────────
+
+describe('Pokemon Node — Cycle 3: pokemonApiRequest URL and options', () => {
+	it('should call httpRequest with the exact URL and maxRedirects: 0', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(PIKACHU_DETAIL);
+		const mockContext = {
+			helpers: { httpRequest: mockHttpRequest },
+			getNode: () => ({ name: 'Pokemon', type: 'pokemon' }),
+		} as unknown as Parameters<typeof pokemonApiRequest>[0];
+
+		await pokemonApiRequest.call(mockContext, 'https://pokeapi.co/api/v2/pokemon/pikachu');
+
+		expect(mockHttpRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				method: 'GET',
+				url: 'https://pokeapi.co/api/v2/pokemon/pikachu',
+				maxRedirects: 0,
+			}),
+		);
+	});
+
+	it('should NOT use uri property (must use url)', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(PIKACHU_DETAIL);
+		const mockContext = {
+			helpers: { httpRequest: mockHttpRequest },
+			getNode: () => ({ name: 'Pokemon', type: 'pokemon' }),
+		} as unknown as Parameters<typeof pokemonApiRequest>[0];
+
+		await pokemonApiRequest.call(mockContext, 'https://pokeapi.co/api/v2/pokemon/pikachu');
+
+		const callArgs = mockHttpRequest.mock.calls[0][0] as Record<string, unknown>;
+		expect(callArgs).not.toHaveProperty('uri');
+		expect(callArgs).toHaveProperty('url');
+	});
+});
+
+// ─── Cycle 4 (part of cycle 3 commit): pokemonApiRequest wraps errors ─────────
+
+describe('Pokemon Node — Cycle 4: pokemonApiRequest wraps errors', () => {
+	it('should throw NodeApiError when httpRequest throws', async () => {
+		const networkError = new Error('Network error');
+		const mockHttpRequest = jest.fn().mockRejectedValue(networkError);
+		const mockContext = {
+			helpers: { httpRequest: mockHttpRequest },
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+		} as unknown as Parameters<typeof pokemonApiRequest>[0];
+
+		await expect(
+			pokemonApiRequest.call(mockContext, 'https://pokeapi.co/api/v2/pokemon/pikachu'),
+		).rejects.toThrow(NodeApiError);
 	});
 });
