@@ -10,5 +10,5 @@
 			}
 		]
 	},
-	"alias": ["pokemon", "pokeapi", "pikachu"]
+	"alias": ["pokeapi", "pokemon api", "pokedex"]
 }
