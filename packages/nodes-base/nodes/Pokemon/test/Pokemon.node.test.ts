@@ -991,3 +991,51 @@ describe('Pokemon Node — Cycle 19: execute empty string input', () => {
 		expect(mockHttpRequest).not.toHaveBeenCalled();
 	});
 });
+
+// ─── NIT-2: execute() continueOnFail on getAll path ──────────────────────────
+
+describe('Pokemon Node — continueOnFail on getAll path', () => {
+	it('should return error item with pairedItem when getAll fails and continueOnFail is enabled', async () => {
+		const apiError = Object.assign(new Error('Service Unavailable'), {
+			statusCode: 503,
+		});
+		const mockHttpRequest = jest.fn().mockRejectedValue(apiError);
+		const inputData = [{ json: {} }];
+		const ctx = {
+			getInputData: () => inputData,
+			getNodeParameter: (name: string, _index: number, fallback?: unknown) => {
+				const params: Record<string, unknown> = {
+					operation: 'getAll',
+					returnAll: false,
+					limit: 20,
+				};
+				return name in params ? params[name] : fallback;
+			},
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+			continueOnFail: () => true,
+			helpers: {
+				httpRequest: mockHttpRequest,
+				constructExecutionMetaData: (data: unknown[], opts: { itemData: { item: number } }) =>
+					data.map((d) => ({
+						...((d as Record<string, unknown>) ?? {}),
+						pairedItem: opts.itemData,
+					})),
+				returnJsonArray: (data: unknown[]) => data.map((d) => ({ json: d })),
+			},
+		} as unknown as IExecuteFunctions;
+
+		const node = new Pokemon();
+		const result = await node.execute.call(ctx);
+
+		expect(result[0]).toHaveLength(1);
+		const errorItem = result[0][0];
+		expect(errorItem.json).toHaveProperty('error');
+		expect(errorItem.pairedItem).toEqual({ item: 0 });
+	});
+});
