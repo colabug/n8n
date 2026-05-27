@@ -38,7 +38,7 @@ export const pokemonFields: INodeProperties[] = [
 		},
 		default: '',
 		placeholder: 'e.g. pikachu or 25',
-		description: 'Name or numeric ID. Case-insensitive.',
+		description: 'Name (lowercase) or numeric ID. The node normalizes to lowercase automatically.',
 	},
 	// ─── Get: simplify ────────────────────────────────────────────────────────
 	{
@@ -84,6 +84,6 @@ export const pokemonFields: INodeProperties[] = [
 		},
 		default: 20,
 		description:
-			'Max number of results to return. How many to return. Returns name and URL only — use Get for full details.',
+			'Max number of results to return. Returns name and URL only — use Get for full details.',
 	},
 ];
