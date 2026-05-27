@@ -143,13 +143,11 @@ describe('Custom Telemetry Tags', () => {
 				position: [200, 0] as [number, number],
 				id: uuid(),
 				name: 'DebugHelper',
-				customTelemetryTags: {
-					tag: [
-						{ key: 'environment', value: 'production' },
-						{ key: 'team', value: 'backend' },
-						{ key: 'env', value: '={{ $json.env }}' },
-					],
-				},
+				customTelemetryTags: [
+					{ key: 'environment', value: 'production' },
+					{ key: 'team', value: 'backend' },
+					{ key: 'env', value: '={{ $json.env }}' },
+				],
 			},
 		],
 		connections: {
@@ -185,9 +183,7 @@ describe('Custom Telemetry Tags', () => {
 				position: [200, 0] as [number, number],
 				id: uuid(),
 				name: 'HelperA',
-				customTelemetryTags: {
-					tag: [{ key: 'service', value: 'auth' }],
-				},
+				customTelemetryTags: [{ key: 'service', value: 'auth' }],
 			},
 			{
 				parameters: { category: 'doNothing' },
@@ -196,9 +192,7 @@ describe('Custom Telemetry Tags', () => {
 				position: [400, 0] as [number, number],
 				id: uuid(),
 				name: 'HelperB',
-				customTelemetryTags: {
-					tag: [{ key: 'tier', value: 'premium' }],
-				},
+				customTelemetryTags: [{ key: 'tier', value: 'premium' }],
 			},
 		],
 		connections: {
@@ -278,14 +272,12 @@ describe('Custom Telemetry Tags', () => {
 			{
 				...createMultiNodeWorkflowFixture(),
 				settings: {
-					customTelemetryTags: {
-						tag: [
-							{ key: 'environment', value: 'production' },
-							{ key: 'workflowName', value: '={{ $workflow.name }}' },
-							{ key: 'retryCount', value: '={{ 3 }}' },
-							{ key: 'isCritical', value: '={{ true }}' },
-						],
-					},
+					customTelemetryTags: [
+						{ key: 'environment', value: 'production' },
+						{ key: 'workflowName', value: '={{ $workflow.name }}' },
+						{ key: 'retryCount', value: '={{ 3 }}' },
+						{ key: 'isCritical', value: '={{ true }}' },
+					],
 				},
 			},
 			project,

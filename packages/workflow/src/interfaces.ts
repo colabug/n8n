@@ -1370,9 +1370,7 @@ export type ICustomTelemetryTag = {
 	value: string;
 };
 
-export type ICustomTelemetryTags = {
-	tag?: ICustomTelemetryTag[];
-};
+export type ICustomTelemetryTags = ICustomTelemetryTag[];
 
 export type OnError = 'continueErrorOutput' | 'continueRegularOutput' | 'stopWorkflow';
 export interface INode {
