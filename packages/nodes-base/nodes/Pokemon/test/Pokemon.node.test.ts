@@ -14,6 +14,7 @@ import {
 	BULBASAUR_DETAIL,
 	LIST_PAGE_1,
 	LIST_PAGE_2,
+	LIST_LIMIT_20,
 } from './apiResponses';
 
 describe('Pokemon Node — Cycle 1: description', () => {
@@ -444,12 +445,12 @@ describe('Pokemon Node — Cycle 10: pagination circuit breaker', () => {
 	});
 });
 
-// ─── Review fix: execute() throws ─────────────────────────────────────────────
+// ─── Cycle 11: execute() getAll with default limit ───────────────────────────
 
-describe('Pokemon Node — execute stub throws', () => {
-	it('should throw NodeOperationError with "Not yet implemented"', async () => {
-		const node = new Pokemon();
-		const mockContext = {
+describe('Pokemon Node — Cycle 11: execute getAll default limit', () => {
+	const makeGetAllContext = (mockHttpRequest: jest.Mock, limit = 20, returnAll = false) =>
+		({
+			helpers: { httpRequest: mockHttpRequest },
 			getNode: () => ({
 				name: 'Pokemon',
 				type: 'n8n-nodes-base.pokemon',
@@ -457,10 +458,69 @@ describe('Pokemon Node — execute stub throws', () => {
 				id: '1',
 				position: [0, 0] as [number, number],
 			}),
-		} as unknown as Parameters<typeof node.execute>[0];
+			getInputData: () => [{ json: {}, pairedItem: { item: 0 } }],
+			getNodeParameter: (name: string) => {
+				if (name === 'operation') return 'getAll';
+				if (name === 'returnAll') return returnAll;
+				if (name === 'limit') return limit;
+				return undefined;
+			},
+			continueOnFail: () => false,
+			helpers: {
+				httpRequest: mockHttpRequest,
+				constructExecutionMetaData: (data: unknown[], meta: unknown) => data,
+				returnJsonArray: (data: unknown[]) =>
+					data.map((d) => ({ json: d, pairedItem: { item: 0 } })),
+			},
+		}) as unknown as Parameters<typeof Pokemon.prototype.execute>[0];
 
-		await expect(node.execute.call(mockContext)).rejects.toThrow(NodeOperationError);
-		await expect(node.execute.call(mockContext)).rejects.toThrow('Not yet implemented');
+	it('should return 20 items when limit is 20', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(LIST_LIMIT_20);
+		const ctx = makeGetAllContext(mockHttpRequest, 20);
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+
+		expect(result[0]).toHaveLength(20);
+	});
+
+	it('should call httpRequest with limit=20 in query', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(LIST_LIMIT_20);
+		const ctx = makeGetAllContext(mockHttpRequest, 20);
+		const node = new Pokemon();
+
+		await node.execute.call(ctx);
+
+		expect(mockHttpRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: expect.stringContaining('limit=20'),
+			}),
+		);
+	});
+
+	it('should return items with name and url properties', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(LIST_LIMIT_20);
+		const ctx = makeGetAllContext(mockHttpRequest, 20);
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+		const items = result[0] as Array<{ json: Record<string, unknown> }>;
+
+		expect(items[0].json).toHaveProperty('name');
+		expect(items[0].json).toHaveProperty('url');
+	});
+
+	it('should NOT include count, next, or previous fields in output', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(LIST_LIMIT_20);
+		const ctx = makeGetAllContext(mockHttpRequest, 20);
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+		const items = result[0] as Array<{ json: Record<string, unknown> }>;
+
+		expect(items[0].json).not.toHaveProperty('count');
+		expect(items[0].json).not.toHaveProperty('next');
+		expect(items[0].json).not.toHaveProperty('previous');
 	});
 });
 
