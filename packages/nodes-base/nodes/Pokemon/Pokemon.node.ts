@@ -1,4 +1,5 @@
 import type {
+	IDataObject,
 	IExecuteFunctions,
 	INodeExecutionData,
 	INodeType,
@@ -41,16 +42,16 @@ export class Pokemon implements INodeType {
 				if (operation === 'getAll') {
 					const returnAll = this.getNodeParameter('returnAll', i) as boolean;
 
-					let results;
+					let results: IDataObject[];
 					if (returnAll) {
-						results = await pokemonApiRequestAllPages.call(this);
+						results = (await pokemonApiRequestAllPages.call(this)) as unknown as IDataObject[];
 					} else {
 						const limit = clampLimit(this.getNodeParameter('limit', i) as number);
 						const response = (await pokemonApiRequest.call(
 							this,
 							`${POKEAPI_BASE_URL}/pokemon?limit=${limit}&offset=0`,
 						)) as IPokemonListResponse;
-						results = response.results;
+						results = response.results as unknown as IDataObject[];
 					}
 
 					const executionData = this.helpers.constructExecutionMetaData(

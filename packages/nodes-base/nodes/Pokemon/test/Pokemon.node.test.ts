@@ -172,7 +172,7 @@ describe('Pokemon Node — Cycle 2: typed interfaces', () => {
 // ─── Cycle 3: pokemonApiRequest calls correct URL ─────────────────────────────
 
 describe('Pokemon Node — Cycle 3: pokemonApiRequest URL and options', () => {
-	it('should call httpRequest with the exact URL and maxRedirects: 0', async () => {
+	it('should call httpRequest with the exact URL and disableFollowRedirect: true', async () => {
 		const mockHttpRequest = jest.fn().mockResolvedValue(PIKACHU_DETAIL);
 		const mockContext = {
 			helpers: { httpRequest: mockHttpRequest },
@@ -185,7 +185,7 @@ describe('Pokemon Node — Cycle 3: pokemonApiRequest URL and options', () => {
 			expect.objectContaining({
 				method: 'GET',
 				url: 'https://pokeapi.co/api/v2/pokemon/pikachu',
-				maxRedirects: 0,
+				disableFollowRedirect: true,
 			}),
 		);
 	});
