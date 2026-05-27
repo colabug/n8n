@@ -224,3 +224,44 @@ describe('Pokemon Node — Cycle 4: pokemonApiRequest wraps errors', () => {
 		).rejects.toThrow(NodeApiError);
 	});
 });
+
+// ─── Cycle 5: Input validation ────────────────────────────────────────────────
+
+describe('Pokemon Node — Cycle 5: validateNameOrId', () => {
+	const makeContext = () =>
+		({
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+		}) as unknown as Parameters<typeof validateNameOrId>[0];
+
+	it('should throw NodeOperationError for path traversal input', () => {
+		expect(() => validateNameOrId(makeContext(), '../../admin', 0)).toThrow(NodeOperationError);
+	});
+
+	it('should throw NodeOperationError for query injection input', () => {
+		expect(() => validateNameOrId(makeContext(), 'pikachu?callback=evil', 0)).toThrow(
+			NodeOperationError,
+		);
+	});
+
+	it('should throw NodeOperationError for empty string', () => {
+		expect(() => validateNameOrId(makeContext(), '', 0)).toThrow(NodeOperationError);
+	});
+
+	it('should NOT throw for valid hyphenated name mr-mime', () => {
+		expect(() => validateNameOrId(makeContext(), 'mr-mime', 0)).not.toThrow();
+	});
+
+	it('should NOT throw for numeric ID', () => {
+		expect(() => validateNameOrId(makeContext(), '25', 0)).not.toThrow();
+	});
+
+	it('should NOT throw for simple name pikachu', () => {
+		expect(() => validateNameOrId(makeContext(), 'pikachu', 0)).not.toThrow();
+	});
+});
