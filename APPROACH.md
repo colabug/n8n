@@ -22,7 +22,7 @@ Started with a clear spec and turned it into BDD scenarios and acceptance criter
 
 ## What I'd Do Differently With More Time
 
-1. **Update the harness first.** A few things have changed over the last month — including the advisor pattern for better token efficiency. Would have saved time and tokens.
+1. **Update the harness first.** A few things have changed over the last month and I'd adopt the Advisor pattern for better token efficiency once the spec has been created.
 2. **PokeAPI GraphQL integration.** They're launching v1beta2 in June. GraphQL would let users query exactly the fields they need, eliminating the simplify function entirely.
 3. **Run the Playwright E2E tests.** The spec file exists, but wasn't executed against a dev server in this session.
 4. **Convert Get Many to declarative routing.** The list operation is a simple GET with envelope extraction — a natural candidate for n8n's declarative pattern.
