@@ -2,6 +2,7 @@ import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workf
 
 import { Pokemon } from '../Pokemon.node';
 import {
+	clampLimit,
 	pokemonApiRequest,
 	pokemonApiRequestAllPages,
 	simplifyPokemonData,
@@ -440,5 +441,80 @@ describe('Pokemon Node — Cycle 10: pagination circuit breaker', () => {
 		await expect(pokemonApiRequestAllPages.call(mockContext)).rejects.toThrow();
 		// Should not exceed circuit breaker limit (50 pages)
 		expect(mockHttpRequest.mock.calls.length).toBeLessThanOrEqual(50);
+	});
+});
+
+// ─── Review fix: execute() throws ─────────────────────────────────────────────
+
+describe('Pokemon Node — execute stub throws', () => {
+	it('should throw NodeOperationError with "Not yet implemented"', async () => {
+		const node = new Pokemon();
+		const mockContext = {
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+		} as unknown as Parameters<typeof node.execute>[0];
+
+		await expect(node.execute.call(mockContext)).rejects.toThrow(NodeOperationError);
+		await expect(node.execute.call(mockContext)).rejects.toThrow('Not yet implemented');
+	});
+});
+
+// ─── Review fix: clampLimit runtime clamping ─────────────────────────────────
+
+describe('Pokemon Node — clampLimit', () => {
+	it('should return value unchanged when within 1..100', () => {
+		expect(clampLimit(20)).toBe(20);
+		expect(clampLimit(1)).toBe(1);
+		expect(clampLimit(100)).toBe(100);
+	});
+
+	it('should clamp values below 1 to 1', () => {
+		expect(clampLimit(0)).toBe(1);
+		expect(clampLimit(-5)).toBe(1);
+	});
+
+	it('should clamp values above 100 to 100', () => {
+		expect(clampLimit(101)).toBe(100);
+		expect(clampLimit(999)).toBe(100);
+	});
+});
+
+// ─── Review fix: validateNameOrId lowercases input ────────────────────────────
+
+describe('Pokemon Node — validateNameOrId lowercase normalization', () => {
+	const makeContext = () =>
+		({
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+		}) as unknown as Parameters<typeof validateNameOrId>[0];
+
+	it('should return lowercased name for mixed-case input', () => {
+		expect(validateNameOrId(makeContext(), 'Pikachu', 0)).toBe('pikachu');
+	});
+
+	it('should return lowercased name for uppercase input', () => {
+		expect(validateNameOrId(makeContext(), 'CHARIZARD', 0)).toBe('charizard');
+	});
+
+	it('should preserve already-lowercase input', () => {
+		expect(validateNameOrId(makeContext(), 'bulbasaur', 0)).toBe('bulbasaur');
+	});
+
+	it('should lowercase hyphenated names', () => {
+		expect(validateNameOrId(makeContext(), 'Mr-Mime', 0)).toBe('mr-mime');
+	});
+
+	it('should return numeric IDs unchanged', () => {
+		expect(validateNameOrId(makeContext(), '25', 0)).toBe('25');
 	});
 });
