@@ -15,6 +15,7 @@ import {
 	LIST_PAGE_1,
 	LIST_PAGE_2,
 	LIST_LIMIT_20,
+	LIST_LIMIT_5,
 } from './apiResponses';
 
 describe('Pokemon Node — Cycle 1: description', () => {
@@ -518,6 +519,112 @@ describe('Pokemon Node — Cycle 11: execute getAll default limit', () => {
 		const result = await node.execute.call(ctx);
 		const items = result[0] as Array<{ json: Record<string, unknown> }>;
 
+		expect(items[0].json).not.toHaveProperty('count');
+		expect(items[0].json).not.toHaveProperty('next');
+		expect(items[0].json).not.toHaveProperty('previous');
+	});
+});
+
+// ─── Cycle 12: execute getAll with custom limit ───────────────────────────────
+
+describe('Pokemon Node — Cycle 12: execute getAll custom limit', () => {
+	const makeGetAllContext = (mockHttpRequest: jest.Mock, limit = 5) =>
+		({
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+			getInputData: () => [{ json: {}, pairedItem: { item: 0 } }],
+			getNodeParameter: (name: string) => {
+				if (name === 'operation') return 'getAll';
+				if (name === 'returnAll') return false;
+				if (name === 'limit') return limit;
+				return undefined;
+			},
+			continueOnFail: () => false,
+			helpers: {
+				httpRequest: mockHttpRequest,
+				constructExecutionMetaData: (data: unknown[], _meta: unknown) => data,
+				returnJsonArray: (data: unknown[]) =>
+					data.map((d) => ({ json: d, pairedItem: { item: 0 } })),
+			},
+		}) as unknown as Parameters<typeof Pokemon.prototype.execute>[0];
+
+	it('should return 5 items when limit is 5', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(LIST_LIMIT_5);
+		const ctx = makeGetAllContext(mockHttpRequest, 5);
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+
+		expect(result[0]).toHaveLength(5);
+	});
+
+	it('should call httpRequest with limit=5 in query', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(LIST_LIMIT_5);
+		const ctx = makeGetAllContext(mockHttpRequest, 5);
+		const node = new Pokemon();
+
+		await node.execute.call(ctx);
+
+		expect(mockHttpRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				url: expect.stringContaining('limit=5'),
+			}),
+		);
+	});
+});
+
+// ─── Cycle 13: execute getAll extracts results from envelope ─────────────────
+
+describe('Pokemon Node — Cycle 13: execute getAll envelope unwrapping', () => {
+	const makeGetAllContext = (mockHttpRequest: jest.Mock) =>
+		({
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+			getInputData: () => [{ json: {}, pairedItem: { item: 0 } }],
+			getNodeParameter: (name: string) => {
+				if (name === 'operation') return 'getAll';
+				if (name === 'returnAll') return false;
+				if (name === 'limit') return 20;
+				return undefined;
+			},
+			continueOnFail: () => false,
+			helpers: {
+				httpRequest: mockHttpRequest,
+				constructExecutionMetaData: (data: unknown[], _meta: unknown) => data,
+				returnJsonArray: (data: unknown[]) =>
+					data.map((d) => ({ json: d, pairedItem: { item: 0 } })),
+			},
+		}) as unknown as Parameters<typeof Pokemon.prototype.execute>[0];
+
+	it('should extract only results array, not count/next/previous', async () => {
+		const envelopeResponse = {
+			count: 1302,
+			next: 'https://pokeapi.co/api/v2/pokemon?offset=20&limit=20',
+			previous: null,
+			results: [
+				{ name: 'bulbasaur', url: 'https://pokeapi.co/api/v2/pokemon/1/' },
+				{ name: 'ivysaur', url: 'https://pokeapi.co/api/v2/pokemon/2/' },
+			],
+		};
+		const mockHttpRequest = jest.fn().mockResolvedValue(envelopeResponse);
+		const ctx = makeGetAllContext(mockHttpRequest);
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+		const items = result[0] as Array<{ json: Record<string, unknown> }>;
+
+		expect(items).toHaveLength(2);
+		expect(items[0].json.name).toBe('bulbasaur');
 		expect(items[0].json).not.toHaveProperty('count');
 		expect(items[0].json).not.toHaveProperty('next');
 		expect(items[0].json).not.toHaveProperty('previous');
