@@ -337,3 +337,108 @@ describe('Pokemon Node — Cycle 8: simplifyPokemonData multi-type', () => {
 		expect(result.abilities).toEqual(['overgrow', 'chlorophyll']);
 	});
 });
+
+// ─── Cycle 9: pokemonApiRequestAllPages paginates ────────────────────────────
+
+describe('Pokemon Node — Cycle 9: pokemonApiRequestAllPages pagination', () => {
+	const makeContext = (mockHttpRequest: jest.Mock) =>
+		({
+			helpers: { httpRequest: mockHttpRequest },
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+		}) as unknown as Parameters<typeof pokemonApiRequestAllPages>[0];
+
+	it('should combine results from two pages', async () => {
+		const mockHttpRequest = jest
+			.fn()
+			.mockResolvedValueOnce(LIST_PAGE_1)
+			.mockResolvedValueOnce(LIST_PAGE_2);
+		const ctx = makeContext(mockHttpRequest);
+
+		const results = await pokemonApiRequestAllPages.call(ctx);
+
+		expect(results).toHaveLength(3);
+		expect(results[0].name).toBe('bulbasaur');
+		expect(results[1].name).toBe('ivysaur');
+		expect(results[2].name).toBe('venusaur');
+	});
+
+	it('should make exactly 2 API calls for a 2-page response', async () => {
+		const mockHttpRequest = jest
+			.fn()
+			.mockResolvedValueOnce(LIST_PAGE_1)
+			.mockResolvedValueOnce(LIST_PAGE_2);
+		const ctx = makeContext(mockHttpRequest);
+
+		await pokemonApiRequestAllPages.call(ctx);
+
+		expect(mockHttpRequest).toHaveBeenCalledTimes(2);
+	});
+
+	it('should stop when next is null (single page)', async () => {
+		const singlePage = { ...LIST_PAGE_2, next: null };
+		const mockHttpRequest = jest.fn().mockResolvedValueOnce(singlePage);
+		const ctx = makeContext(mockHttpRequest);
+
+		const results = await pokemonApiRequestAllPages.call(ctx);
+
+		expect(results).toHaveLength(1);
+		expect(mockHttpRequest).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ─── Cycle 10: Pagination circuit breaker ────────────────────────────────────
+
+describe('Pokemon Node — Cycle 10: pagination circuit breaker', () => {
+	it('should throw NodeOperationError when more than 50 pages are fetched', async () => {
+		// Create a mock that always returns next page (infinite loop)
+		const infinitePage = {
+			count: 9999,
+			next: 'https://pokeapi.co/api/v2/pokemon?offset=100&limit=100',
+			previous: null,
+			results: [{ name: 'pokemon-x', url: 'https://pokeapi.co/api/v2/pokemon/1/' }],
+		};
+		const mockHttpRequest = jest.fn().mockResolvedValue(infinitePage);
+		const mockContext = {
+			helpers: { httpRequest: mockHttpRequest },
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+		} as unknown as Parameters<typeof pokemonApiRequestAllPages>[0];
+
+		await expect(pokemonApiRequestAllPages.call(mockContext)).rejects.toThrow(NodeOperationError);
+	});
+
+	it('should call httpRequest no more than 50 times before circuit breaker triggers', async () => {
+		const infinitePage = {
+			count: 9999,
+			next: 'https://pokeapi.co/api/v2/pokemon?offset=100&limit=100',
+			previous: null,
+			results: [{ name: 'pokemon-x', url: 'https://pokeapi.co/api/v2/pokemon/1/' }],
+		};
+		const mockHttpRequest = jest.fn().mockResolvedValue(infinitePage);
+		const mockContext = {
+			helpers: { httpRequest: mockHttpRequest },
+			getNode: () => ({
+				name: 'Pokemon',
+				type: 'n8n-nodes-base.pokemon',
+				typeVersion: 1,
+				id: '1',
+				position: [0, 0] as [number, number],
+			}),
+		} as unknown as Parameters<typeof pokemonApiRequestAllPages>[0];
+
+		await expect(pokemonApiRequestAllPages.call(mockContext)).rejects.toThrow();
+		// Should not exceed circuit breaker limit (50 pages)
+		expect(mockHttpRequest.mock.calls.length).toBeLessThanOrEqual(50);
+	});
+});
