@@ -265,3 +265,75 @@ describe('Pokemon Node — Cycle 5: validateNameOrId', () => {
 		expect(() => validateNameOrId(makeContext(), 'pikachu', 0)).not.toThrow();
 	});
 });
+
+// ─── Cycle 6: simplifyPokemonData extracts correct fields ────────────────────
+
+describe('Pokemon Node — Cycle 6: simplifyPokemonData output shape', () => {
+	it('should return all IPokemonSimplified fields from full mock response', () => {
+		const result = simplifyPokemonData(PIKACHU_DETAIL);
+
+		expect(result.id).toBe(25);
+		expect(result.name).toBe('pikachu');
+		expect(result.height).toBe(4);
+		expect(result.weight).toBe(60);
+		expect(result.base_experience).toBe(112);
+		expect(result.types).toEqual(['electric']);
+		expect(result.abilities).toEqual(['static', 'lightning-rod']);
+		expect(result.stats).toEqual({
+			hp: 35,
+			attack: 55,
+			defense: 40,
+			'special-attack': 50,
+			'special-defense': 50,
+			speed: 90,
+		});
+		expect(result.sprite).toBe(
+			'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/25.png',
+		);
+		expect(result.species).toBe('pikachu');
+	});
+
+	it('should have exactly the IPokemonSimplified keys and no extras', () => {
+		const result = simplifyPokemonData(PIKACHU_DETAIL);
+		const expectedKeys = [
+			'id',
+			'name',
+			'height',
+			'weight',
+			'base_experience',
+			'types',
+			'abilities',
+			'stats',
+			'sprite',
+			'species',
+		];
+		expect(Object.keys(result).sort()).toEqual(expectedKeys.sort());
+	});
+});
+
+// ─── Cycle 7: simplifyPokemonData null sprite ─────────────────────────────────
+
+describe('Pokemon Node — Cycle 7: simplifyPokemonData null sprite', () => {
+	it('should return sprite as null when sprites.front_default is null', () => {
+		const result = simplifyPokemonData(PIKACHU_DETAIL_NULL_SPRITE);
+		expect(result.sprite).toBeNull();
+	});
+
+	it('should not throw when sprite is null', () => {
+		expect(() => simplifyPokemonData(PIKACHU_DETAIL_NULL_SPRITE)).not.toThrow();
+	});
+});
+
+// ─── Cycle 8: simplifyPokemonData multi-type ──────────────────────────────────
+
+describe('Pokemon Node — Cycle 8: simplifyPokemonData multi-type', () => {
+	it('should return multiple types for Bulbasaur', () => {
+		const result = simplifyPokemonData(BULBASAUR_DETAIL);
+		expect(result.types).toEqual(['grass', 'poison']);
+	});
+
+	it('should return multiple abilities for Bulbasaur', () => {
+		const result = simplifyPokemonData(BULBASAUR_DETAIL);
+		expect(result.abilities).toEqual(['overgrow', 'chlorophyll']);
+	});
+});
