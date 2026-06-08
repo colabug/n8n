@@ -256,22 +256,23 @@ dozen fields. It *flattens* nested values (a type buried as `types[0].type.name`
 `stats.speed` → `90`), and *drops* the bulky stuff like the full moves list (most of the
 200KB). Turn Simplify off and you get the entire raw response instead.
 
-**Why is there a `for` at all if a single Get doesn't "loop"?** Good question — and the honest
-answer: **the node never *decides* to loop. It processes one item per input, and the `for` just
-walks whatever items it was handed.** An n8n node's contract is "you may be given many items at
-once," so the `for` is **batch-handling, not iteration you control**. For a manual "Get
-pikachu," the Manual Trigger hands it **one** item → the body runs **once** → straight through.
-The multi-item case only happens when an upstream node emits a list (e.g. a Google Sheet with
-50 rows feeds 50 items in, and the node processes each). And the *workflow-level* looping you'd
-see in "enrich all Pokémon" (Get Many → **Loop Over Items** → Get) comes from a **separate
-control-flow node**, not from inside this node. So: **the node is an item-processor; it doesn't
-loop, it handles its batch — usually a batch of one.**
+**The `for` loop — what's real vs. what's automatic.** There IS a real `for` loop in
+`execute()` (`Pokemon.node.ts:48`) and it iterates over the input items — that part is
+genuine, you wrote it. What the **user** doesn't configure is **how many times it runs**: the
+iteration count is simply **the number of items the upstream node handed in**. A Manual Trigger
+sends **one** item → the loop runs **once** (the manual "Get pikachu" case). A Google Sheet with
+50 rows sends **50** items → the *same* loop runs **50** times, no extra config. So the loop is
+yours; the count comes from upstream. (Separately, the *workflow-level* looping in "enrich all
+Pokémon" — Get Many → **Loop Over Items** → Get — is a distinct control-flow node the user adds
+on the canvas; it feeds items into your node one batch at a time, but it's not the `for` inside
+`execute`.) **One-line version: "Real for loop over the input items; I don't set the count, the
+input size does."**
 
 ### 3.6 Get Many — focused flow (limit vs. Return All + the cost split)
 
 ```mermaid
 flowchart TD
-    A["execute: loop each item i"] --> B{"returnAll?"}
+    A["execute: for loop over input items (1 for a manual run)"] --> B{"returnAll?"}
     B -->|"false (default)"| C["clampLimit 1..100<br/>[!] runtime guard — expression inputs bypass the UI min/max"]
     C --> D["ONE call: GET /pokemon?limit=N&offset=0<br/>[!] CHEAP — 1 request, ~100ms"]
     B -->|"true"| E["pokemonApiRequestAllPages<br/>[!] sequential cursor walk, ~14 pages, ~1.4s<br/>cost scales with PAGES (~14), not Pokémon (~1300)"]
@@ -291,8 +292,15 @@ and detail are two operations.
 This is the "function calls and such" view — who calls whom across the three files, for a
 single `Get`. Use it to narrate the layering: the node orchestrates; `GenericFunctions`
 holds the reusable, typed helpers. **No caching in this version — every call hits PokeAPI.**
-The `per input item` frame below runs **once** for a manual "Get pikachu" (one item in); it's
-batch-handling, not a control loop.
+
+> **Reading the frames (they're not all the same thing):**
+> - `loop` = the **real `for` loop** in `execute()` over the input items (`Pokemon.node.ts:48`).
+>   It runs **once per input item** — one item for a manual Get, N for an N-item upstream node.
+>   The loop is real; what's *not* user-configured is the count (it's the input size).
+> - `alt` on **validation / simplify** = an actual **if/else** branch in the code.
+> - `break` on **the fetch** = the **try/catch** error path (`Pokemon.node.ts:49,68`) — not a
+>   branch you choose, but a failure being caught. Mermaid renders if/else and try/catch
+>   similarly, so this is labeled to keep them distinct.
 
 ```mermaid
 sequenceDiagram
@@ -303,29 +311,29 @@ sequenceDiagram
 
     n8n->>Node: execute() — hands in the input items
     Note over Node: read which operation + the item list<br/>getInputData() / getNodeParameter('operation', 0)
-    loop per input item i (just 1 for a manual Get)
+    loop for each input item i — real for loop (1 item for a manual Get)
         Node->>Node: read this item's fields<br/>getNodeParameter('nameOrId', i), ('simplify', i)
+        Note over Node,API: try { ... } — the whole fetch is wrapped in error handling
         Node->>GF: validate the name BEFORE any request<br/>validateNameOrId(ctx, raw, i)
-        alt empty or illegal chars
+        alt IF empty or illegal chars (if/else)
             GF-->>Node: throw NodeOperationError (no HTTP sent)
-        else clean
+        else ELSE clean
             GF-->>Node: trimmed + lowercased nameOrId
         end
         Node->>GF: fetch it (cold — no cache)<br/>pokemonApiRequest(url, nameOrId)
         GF->>API: GET /pokemon/{nameOrId}<br/>(Accept json, redirects disabled)
-        alt 404 not found
+        break CATCH 404 (try/catch, not a branch)
             API-->>GF: 404
             GF-->>Node: throw NodeApiError ("check the spelling")
-        else success
-            API-->>GF: full ~200KB JSON blob
-            GF-->>Node: responseData (typed as IPokemonDetailResponse)
         end
-        alt Simplify on (default)
+        API-->>GF: success: full ~200KB JSON blob
+        GF-->>Node: responseData (typed as IPokemonDetailResponse)
+        alt IF Simplify on (default) (if/else)
             Node->>GF: trim to ~12 useful fields<br/>simplifyPokemonData(responseData)
             GF-->>Node: tidy IPokemonSimplified
             Node->>GF: toDataObject(simplified)
             GF-->>Node: IDataObject ready for n8n
-        else Simplify off
+        else ELSE Simplify off
             Node->>Node: pass the full raw blob through
         end
         Node->>n8n: package + tag to input<br/>returnJsonArray + constructExecutionMetaData (pairedItem)
