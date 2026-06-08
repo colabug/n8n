@@ -210,36 +210,62 @@ node asserts the shape exactly once at the call site. Everything downstream
 
 ---
 
-### 3.5 Get — focused flow, with the complexity callouts (show this for "walk me through Get")
+### 3.5 Get — focused flow (show this for "walk me through Get")
 
-Split out from §3.1 so you can present *just* the single-Pokémon path and point at each
-deliberate decision. Annotations marked **[!]** are the things worth calling out.
+The single-Pokémon path. Each box has a **plain-English line** (what's happening) and the
+**real function / detail** beneath it. `[!]` marks the things worth calling out.
+
+> **This diagram reflects the SUBMITTED node: NO CACHING.** Every run is a cold fetch. (The
+> caching work is in progress on a separate fork branch and is *not* shown here — see §11.4.)
+
+**The input:** the node receives a list of items from whatever is wired into it
+(`getInputData()`). For "type pikachu and hit Execute," a **Manual Trigger** hands it
+**exactly one item** — so the path below runs once. (More on why there's a `for` at all, below
+the diagram.)
 
 ```mermaid
 flowchart TD
-    A["execute: getInputData = list of items<br/>[!] unit of work is the ITEM, not the call"] --> B["loop each item i<br/>[!] one fetch PER input item — 1 is the degenerate case"]
-    B --> C["read nameOrId + simplify for item i<br/>[!] value is a literal OR a resolved expression"]
-    C --> D{"validateNameOrId<br/>[!] LAYER 1: fail before the wire"}
-    D -->|"empty / illegal chars<br/>(path traversal, injection)"| DE["throw NodeOperationError<br/>NO HTTP call made"]
-    D -->|"valid: trim + lowercase"| E["build URL /pokemon/nameOrId<br/>[!] fetch is deliberately unremarkable"]
-    E --> F["httpRequest<br/>[!] redirects disabled = SSRF defense<br/>ALWAYS returns the full ~200KB blob"]
-    F -->|"404"| F4["LAYER 2: friendly 'not found' message"]
-    F -->|"other error"| FE["LAYER 2: wrapped API error"]
-    F -->|"ok"| G{"simplify?<br/>[!] output filter, applied AFTER fetch"}
-    G -->|"true (default)"| H["simplifyPokemonData<br/>flatten + reshape + drop to ~12 fields"]
-    G -->|"false"| I["pass raw blob through untouched"]
-    H --> J["wrap: returnJsonArray + constructExecutionMetaData<br/>[!] pairedItem = provenance to input i"]
+    A["<b>n8n starts the node</b><br/>passes in the items from upstream<br/><i>execute() — getInputData() returns the item list</i>"] --> B["<b>handle each incoming item</b><br/>manual Get = 1 item, so 1 pass<br/><i>for over items[] — batch-handling, NOT a real loop</i>"]
+    B --> C["<b>read the field values for this item</b><br/>the Pokémon name/ID and the Simplify toggle<br/><i>getNodeParameter('nameOrId', i) / ('simplify', i)</i>"]
+    C --> D{"<b>is the name safe and well-formed?</b><br/>[!] LAYER 1: check BEFORE any network call<br/><i>validateNameOrId() — trim, allowlist regex, lowercase</i>"}
+    D -->|"empty or illegal chars<br/>(e.g. ../ path, ?query)"| DE["<b>reject it, no request sent</b><br/><i>throw NodeOperationError</i>"]
+    D -->|"clean"| E["<b>build the request URL</b><br/>just the base URL + the name<br/><i>`${POKEAPI_BASE_URL}/pokemon/${nameOrId}`</i>"]
+    E --> F["<b>call PokeAPI (cold — no cache)</b><br/>[!] redirects disabled = SSRF defense<br/>always returns the FULL ~200KB blob<br/><i>pokemonApiRequest() -> helpers.httpRequest()</i>"]
+    F -->|"404 not found"| F4["<b>friendly 'check the spelling' error</b><br/>[!] LAYER 2<br/><i>NodeApiError, httpCode 404</i>"]
+    F -->|"timeout / 5xx / network"| FE["<b>clean wrapped error</b><br/>[!] LAYER 2<br/><i>NodeApiError</i>"]
+    F -->|"success"| G{"<b>does the user want the tidy version?</b><br/>[!] this is an OUTPUT filter, applied AFTER the fetch<br/><i>simplify flag</i>"}
+    G -->|"yes (default)"| H["<b>trim to the dozen useful fields</b><br/>see field list below<br/><i>simplifyPokemonData() -> toDataObject()</i>"]
+    G -->|"no"| I["<b>pass the full raw blob through</b><br/>untouched<br/><i>spread as IDataObject</i>"]
+    H --> J["<b>package the result for n8n</b><br/>[!] tag it back to the input it came from<br/><i>returnJsonArray() + constructExecutionMetaData() — pairedItem</i>"]
     I --> J
-    J --> K["raw blob now out of scope -> garbage-collected<br/>[!] transient because nothing caches it"]
+    J --> K["<b>the raw blob is now discarded</b><br/>[!] transient — nothing keeps it (no cache)<br/><i>out of scope -> garbage-collected</i>"]
     K --> B
-    B --> RET["return [returnData] — one output branch"]
+    B --> RET["<b>hand the output to the next node</b><br/><i>return [returnData] — one output branch</i>"]
 
-    DE -.caught by per-item try/catch.-> CF{"continueOnFail?<br/>[!] LAYER 3: batch resilience"}
+    DE -.error is caught per-item.-> CF{"<b>was 'Continue on Fail' turned on?</b><br/>[!] LAYER 3: one bad item shouldn't kill the batch<br/><i>continueOnFail()</i>"}
     F4 -.-> CF
     FE -.-> CF
-    CF -->|"yes"| CFY["emit error ITEM with pairedItem,<br/>keep processing the rest"]
-    CF -->|"no"| CFN["rethrow — fail the run"]
+    CF -->|"yes"| CFY["<b>emit an error row, keep going</b><br/>tagged to its input<br/><i>error item + pairedItem</i>"]
+    CF -->|"no"| CFN["<b>stop the run</b><br/><i>rethrow</i>"]
 ```
+
+**What I simplified the fields to (human-readable):** Simplify keeps **id, name, height,
+weight, base experience, types, abilities, stats, sprite (image URL), and species** — about a
+dozen fields. It *flattens* nested values (a type buried as `types[0].type.name` becomes just
+`"electric"`), *reshapes* the stats from a list-you-search into a direct lookup (so
+`stats.speed` → `90`), and *drops* the bulky stuff like the full moves list (most of the
+200KB). Turn Simplify off and you get the entire raw response instead.
+
+**Why is there a `for` at all if a single Get doesn't "loop"?** Good question — and the honest
+answer: **the node never *decides* to loop. It processes one item per input, and the `for` just
+walks whatever items it was handed.** An n8n node's contract is "you may be given many items at
+once," so the `for` is **batch-handling, not iteration you control**. For a manual "Get
+pikachu," the Manual Trigger hands it **one** item → the body runs **once** → straight through.
+The multi-item case only happens when an upstream node emits a list (e.g. a Google Sheet with
+50 rows feeds 50 items in, and the node processes each). And the *workflow-level* looping you'd
+see in "enrich all Pokémon" (Get Many → **Loop Over Items** → Get) comes from a **separate
+control-flow node**, not from inside this node. So: **the node is an item-processor; it doesn't
+loop, it handles its batch — usually a batch of one.**
 
 ### 3.6 Get Many — focused flow (limit vs. Return All + the cost split)
 
@@ -264,7 +290,9 @@ and detail are two operations.
 
 This is the "function calls and such" view — who calls whom across the three files, for a
 single `Get`. Use it to narrate the layering: the node orchestrates; `GenericFunctions`
-holds the reusable, typed helpers.
+holds the reusable, typed helpers. **No caching in this version — every call hits PokeAPI.**
+The `per input item` frame below runs **once** for a manual "Get pikachu" (one item in); it's
+batch-handling, not a control loop.
 
 ```mermaid
 sequenceDiagram
@@ -273,36 +301,36 @@ sequenceDiagram
     participant GF as GenericFunctions.ts
     participant API as PokeAPI
 
-    n8n->>Node: execute() with input items
-    Node->>Node: getInputData() / getNodeParameter('operation', 0)
-    loop per input item i
-        Node->>Node: getNodeParameter('nameOrId', i), ('simplify', i)
-        Node->>GF: validateNameOrId(ctx, raw, i)
-        alt invalid (empty / regex fail)
-            GF-->>Node: throw NodeOperationError (no HTTP)
-        else valid
+    n8n->>Node: execute() — hands in the input items
+    Note over Node: read which operation + the item list<br/>getInputData() / getNodeParameter('operation', 0)
+    loop per input item i (just 1 for a manual Get)
+        Node->>Node: read this item's fields<br/>getNodeParameter('nameOrId', i), ('simplify', i)
+        Node->>GF: validate the name BEFORE any request<br/>validateNameOrId(ctx, raw, i)
+        alt empty or illegal chars
+            GF-->>Node: throw NodeOperationError (no HTTP sent)
+        else clean
             GF-->>Node: trimmed + lowercased nameOrId
         end
-        Node->>GF: pokemonApiRequest(url, nameOrId)
-        GF->>API: GET /pokemon/{nameOrId}<br/>(Accept json, disableFollowRedirect)
-        alt 404
+        Node->>GF: fetch it (cold — no cache)<br/>pokemonApiRequest(url, nameOrId)
+        GF->>API: GET /pokemon/{nameOrId}<br/>(Accept json, redirects disabled)
+        alt 404 not found
             API-->>GF: 404
-            GF-->>Node: throw NodeApiError ("not found" message)
-        else ok
+            GF-->>Node: throw NodeApiError ("check the spelling")
+        else success
             API-->>GF: full ~200KB JSON blob
-            GF-->>Node: responseData (cast IPokemonDetailResponse)
+            GF-->>Node: responseData (typed as IPokemonDetailResponse)
         end
-        alt simplify = true
-            Node->>GF: simplifyPokemonData(responseData)
-            GF-->>Node: ~12-field IPokemonSimplified
+        alt Simplify on (default)
+            Node->>GF: trim to ~12 useful fields<br/>simplifyPokemonData(responseData)
+            GF-->>Node: tidy IPokemonSimplified
             Node->>GF: toDataObject(simplified)
-            GF-->>Node: IDataObject
-        else simplify = false
-            Node->>Node: spread raw blob as IDataObject
+            GF-->>Node: IDataObject ready for n8n
+        else Simplify off
+            Node->>Node: pass the full raw blob through
         end
-        Node->>n8n: returnJsonArray + constructExecutionMetaData (pairedItem)
+        Node->>n8n: package + tag to input<br/>returnJsonArray + constructExecutionMetaData (pairedItem)
     end
-    Node-->>n8n: [returnData] (one output branch)
+    Node-->>n8n: [returnData] — hand to the next node
 ```
 
 **Call out the layering:** `execute()` is the **orchestrator** — it owns the loop, the
