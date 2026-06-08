@@ -83,6 +83,7 @@ export const pokemonFields: INodeProperties[] = [
 			maxValue: 100,
 		},
 		default: 20,
+		// eslint-disable-next-line n8n-nodes-base/node-param-description-wrong-for-limit -- intentional UX warning: list endpoint returns stubs only (PO decision, adversarial review)
 		description:
 			'Max number of results to return. Returns name and URL only — use Get for full details.',
 	},
