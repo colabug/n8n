@@ -875,5 +875,77 @@ slow-moving dataset, but the textbook caveat).
 | `usableAsTool` | `true` — `Pokemon.node.ts:36` |
 | Tests | 68 unit (Pokemon.node.test.ts) + 2 workflow (NodeTestHarness) |
 | Simplified fields | id, name, height, weight, base_experience, types, abilities, stats, sprite, species |
-</content>
-</invoke>
+
+---
+
+## 12. Story Bank — "Did anything not go to plan?" (Q5)
+
+The honest-maturity answer. Lead with the positive surprise, tell the failure plainly, name
+the **process gap** (not just the bug), and close with the systemic fix.
+
+### The full answer (read it aloud to rehearse)
+
+> "A few things surprised me — mostly in a good way. I built my multi-agent harness mainly for
+> Kotlin and JVM work, and this was the first time I'd pointed it at a **Node/TypeScript** stack
+> I'd never personally coded in — and it produced quality work. The adversarial-review step in
+> particular helped me land the right spec before writing code, rather than discovering the
+> design halfway through.
+>
+> The thing that genuinely *didn't* go to plan: when I came back to the project the next morning
+> and ran a clean build, **it didn't compile** — my heart skipped a beat. Four TypeScript errors.
+> The fix itself took seconds, but the interesting part is **why I never saw them while I was
+> building.**
+>
+> On my machine, everything was green — the editor was happy, all 68 tests passed. But three
+> things were quietly hiding the problem: a **stale build output** directory from earlier,
+> the **build cache** serving up already-compiled artifacts instead of recompiling, and — the
+> big one — the **test runner transpiles the code without fully type-checking it.** So 'tests
+> pass' was telling me the code *ran*, not that it *compiled cleanly from scratch.* Those are two
+> different guarantees, and I'd been treating one as proof of the other.
+>
+> Honestly, that's a process failure on my part: I didn't know those tooling internals deeply —
+> how the cache and the transpile-only test path interact — and I **never ran a cold build from a
+> clean checkout to verify.** I should have. The submitted patch may not build from scratch for
+> exactly that reason — dependency and build-state drift on my machine that a clean environment
+> wouldn't have.
+>
+> So the fix wasn't just patching four type errors — it was closing the **class** of problem:
+> add a clean-build step that clears the cache and type-checks from scratch, so 'it compiles
+> cold' becomes its own gate that can't be skipped. The lesson I took: green tests and a green
+> cold build are different promises, and for anything I ship I now verify the cold build
+> explicitly — not just that the tests pass on a warm machine."
+
+### Why it works / how to deliver it
+
+- **Lead with the flex** (harness built for Kotlin, worked in unfamiliar Node) — reframes the
+  whole answer from "I hit a bug" to "I built something general and it held up."
+- **Don't rush the root cause.** The valuable part isn't "I fixed it fast" — it's *why it was
+  hidden*: green tests proved the code **ran**, not that it **compiled cold**. Three masking
+  layers: stale build dir + build cache + transpile-only tests.
+- **Own the process gap explicitly** (your framing): "I didn't know those tooling internals
+  deeply, and I never did a cold build to verify — I should have." Naming it as *your* gap,
+  without flagellating, is the maturity signal.
+- **Always attach the fix to the disclosure.** Saying "the patch may not build cold" is honest
+  *only if* immediately followed by "…which is exactly the gap, and the fix is a cold-build
+  gate." Never leave the defect hanging.
+- **End on the transferable lesson:** "tests pass" ≠ "it builds cold" — different guarantees;
+  verify the cold build as its own step.
+
+### One-line version (if they want it short)
+
+> "It looked done — green tests, happy editor — but a clean build the next morning failed with
+> type errors. They were hidden because the tests transpile without full type-checking and the
+> build cache was serving stale artifacts, and I never ran a cold build to catch it. Quick fix,
+> but the real lesson was that 'tests pass' and 'compiles from scratch' are different promises —
+> so I added a clean-build gate."
+
+### Alternate stories (use if the question is framed differently)
+
+- **"A judgment call / disagreement?"** → I overruled my own review team. QA/PM/Architect
+  reached consensus to cut Return All; I pushed back, their case rested on "stubs are useless,"
+  which the dropdown/reference use cases disprove, so I kept it — with documented reasoning.
+  *(Shows independent judgment, not just recovery.)*
+- **"A surprise *while building*?"** → The reference node I planned to copy (CoinGecko) turned
+  out to use a **deprecated API** and a pagination pattern that **doesn't fit PokeAPI's
+  envelope** — the obvious path was a trap, and my adversarial-review process caught it before it
+  shipped. *(Shows process catching a problem early.)*
