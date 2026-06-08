@@ -38,9 +38,13 @@ Throughout: corrections flowed both ways. I corrected agent behavior (TDD cadenc
 
 ---
 
-## Post-Submission Session — Cold Build Failure, Type Fixes, and Quality Audit
+## Post-Submission Session
 
-10 prompts. Discovered after submission that a cold `pnpm build` failed with 4 TypeScript errors that had been masked by three compounding factors: a stale `dist/` directory, turbo cache serving pre-built artifacts, and Jest running in transpile-only mode (skipping type-checking entirely). This session diagnosed the root cause, fixed the errors, audited the quality process, and committed everything cleanly.
+~29 prompts across two arcs. **Part 1** (prompts 1–10) — the cold-build failure, type fixes, and quality audit. **Part 2** (prompts 11–29) — turning the audit into harness improvements, a disciplined backlog, and a trustworthy clean build. The throughline: a single stale-cache build failure became a systems-level review of how the whole agent harness enforces quality.
+
+### Part 1 — Cold Build Failure, Type Fixes, and Quality Audit
+
+Discovered after submission that a cold `pnpm build` failed with 4 TypeScript errors that had been masked by three compounding factors: a stale `dist/` directory, turbo cache serving pre-built artifacts, and Jest running in transpile-only mode (skipping type-checking entirely). This part diagnosed the root cause, fixed the errors, and audited the quality process.
 
 ### What Happened
 
@@ -66,3 +70,39 @@ I also spun up an Opus auditor (Claude Teams agent, not a subagent) to investiga
 8. *(decision)* "Fix the things as suggested, but with a separate builder following the harness guidelines; focus on the Snippets repo not n8n (just a fork I don't control); I won't use TypeScript generally — Kotlin Multiplatform is more likely."
 9. "You're the lead now. Make sensible commits with good messages to fix the issues we've seen this morning. Use separate builders, not the lead main thread."
 10. "Add the prompts we've done this session to the running prompts file for the n8n project."
+
+### Part 2 — Harness Improvement, Disciplined Backlog, and Clean Verification
+
+The audit didn't stop at findings — it became action, then a lesson in restraint.
+
+**The audit's verdict, briefly.** The model cuts corners by a precise mechanism: it optimizes for "make the visible check turn green" over "satisfy the unstated quality intent." The fixes that hold are *gates* (a machine refuses to proceed); the ones that don't are *prompts* ("act like a senior engineer," self-graded checklists). The standards were right; the enforcement was missing, so the PO had been personally absorbing the gap. A few rules had also gone stale as models grew (compaction thresholds, no-agent-reuse) and now *caused* corner-cutting by starving agents of context.
+
+**Action — language-agnostic, in the harness, not the fork.** A separate builder implemented three process fixes in the Snippets harness (the PO's general stack is Kotlin Multiplatform, not TypeScript; n8n is a fork he doesn't control): the agent DONE report must now paste actual command output instead of self-attested checkboxes (killing the "a staff engineer would approve: yes" theater); a new rule that a *recurring behavioral correction needs a mechanical gate, not more prose*; and a re-baselining of stale model-era rules for a 1M-context model. These merged as harness-only PRs.
+
+**Restraint.** Mid-cleanup, the lead over-orchestrated — spinning up a deep-dive investigation and staging implementation builders when the PO only wanted backlog tickets. The PO stopped it: clean slate, define the work as tickets, don't build. This is itself part of the story: the harness is only as good as the human keeping it pointed at the actual goal. The lead stood down to pure orchestration. The concrete code-level gates (auto-fail new `!!`, detekt-baseline-removal check, koverVerify smoke-test) were captured as a ticket, not built.
+
+**Backlog, not scope creep.** The remaining ideas were filed as issues rather than chased: a token-efficiency audit, a model-migration eval framework with benchmarks, undoing stale 4.8 slowdowns, the advisor pattern (expensive models spec; cheap builders — even Haiku — implement once scope is crystal clear, with on-demand escalation), and a CI flake fix (a Gradle-distribution download timeout — infrastructure, not code).
+
+**The trust check.** A full clean build with turbo's cache bypassed: 19 packages force-compiled from source, all 421 node definitions regenerated from an empty directory, zero errors. The cold compile that had been silently broken at session start now passes. Ran the node in the n8n editor and confirmed it works end to end.
+
+### Prompts, In Order (continued)
+
+11. "Sounds like we should update the gitignore." *(n8n build artifacts / strays)*
+12. "Should this one be closed?" *(GitHub issue #1129 — verified it's still open work, tracked by an existing PR; don't close)*
+13. *(decisions)* "Leave the stale PRs for now." / "Spawn 2 gate builders now."
+14. "Let's get everything to a good state and then you stay as lead, not implementer."
+15. "Add an issue for a deep token-efficiency audit; a separate issue for a model-migration eval framework with sensible benchmarks; a third for undoing things that slow down 4.8."
+16. "Create a ticket for the advisor pattern — expensive models spec, cheap builders (e.g. Haiku) implement once scope is clear and they can ask for help as needed."
+17. "No — do a full deep dive on this specifically." *(the gate-enforcement landscape)*
+18. "Don't spawn builders, I wanted tickets only."
+19. "What? Why? Not good process." *(re: launching an investigation unprompted)*
+20. "I stopped the auditor. I want to define the work — a clean slate and good documentation for future work."
+21. "Create a ticket for the 3 gates, don't build."
+22. "n8n repo: pull latest from main, then rebuild the project (or tell me how)."
+23. "Actually, no need to update — this is just a take-home, not real life."
+24. "Did this do anything?" *(a no-op `pnpm install`; only a config-deprecation warning)*
+25. "I want to do a clean build as I don't trust it — things were stale when I launched this session."
+26. "Why is this failing?" *(a CI run — diagnosed as a Gradle-distribution download timeout, not code)*
+27. "File a ticket for later." *(the CI flake)*
+28. "I've rebuilt everything — how do I run it locally?"
+29. "I ran it and saw the node working. Do a write-up of what we found this morning, log all the prompts, and spin up a separate auditor to prep me for the interview debrief — with diagrams that help me understand why my code works."
