@@ -784,6 +784,27 @@ nothing to simplify. Showing a no-op toggle would be a UX lie — ADR D6.)
 > chose survives. The Simplify toggle is a visible switch, on by default, and it only shows for
 > Get — it hides on Get Many because list stubs have nothing to simplify."
 
+**Caching — the "for real I'd cache" answer (and the right design).** As submitted there is
+**no cache** — every fetch is cold, and the node even ignores PokeAPI's 24-hour `Cache-Control`
+header, so repeated lookups in a loop redo identical calls. For a take-home that was a deliberate
+scope cut; for production it's a genuine gap. The *correct* design (worth stating precisely):
+- **Cache the RAW blob, keyed on `nameOrId` ONLY** — not the simplified output, and not keyed on
+  the simplify flag. The cached thing is the full response; the simplify/raw fork runs *after*
+  the cache lookup, as a pure transform.
+- **Why that ordering matters:** because the cache holds the *full* data and shaping happens
+  after, a cache hit can serve **either** simplified or raw per request — toggling simplify never
+  forces a re-fetch and never returns incomplete data. (If you cached the *simplified* output
+  instead, a later raw request would find the dropped fields already gone — the bug to avoid.)
+- **Two layers if you went further:** an **execution-scoped LRU** to collapse duplicate lookups
+  inside one Return-All-then-Loop run, and a **persistent cache with a 24h TTL** matching the
+  header for cross-run reuse. The cleanest home is actually an **HTTP-caching layer** that honors
+  `Cache-Control`, so every node benefits — not hand-rolled inside `execute`.
+- **Why deferred:** a correct cache is real complexity — keys, invalidation, memory bounds,
+  staleness — not worth the risk in a 1–2h window for a dataset that changes a few times a year.
+
+> **Interview tense rule:** submitted = no cache (cold); fork = caching WIP. Never narrate the
+> cache while pointing at the submitted artifact. See §13, Pitfall 2.
+
 ### 11.5 Error flows — the three-layer defense (the richest part; under-shown on the diagram)
 
 A good architect separates *three distinct failure layers*:
@@ -857,6 +878,19 @@ slow-moving dataset, but the textbook caveat).
 > it doesn't assume the list is stable across calls, and parallelizing adds partial-failure
 > handling and is ruder to a free public API. If it became a hot path, offset-based parallel
 > fetch is the obvious next step."
+
+**If they push: "how do you know the data is stable enough to parallelize?"** Separate two kinds
+of stability:
+- **Schema stability (does the response *shape* change?)** — you know this from the **contract**,
+  not at runtime: PokeAPI is pinned to `/api/v2/`, so the shape is a versioned promise, and your
+  code only reads known fields anyway (an added field is ignored harmlessly).
+- **Data stability (does the *list* shift between my paginated calls?)** — the whole walk is
+  ~1.4s and Pokémon are added a few times a *year*, so within that window it's safe to treat
+  `count`/offsets as fixed. The key move is stating it as an **explicit assumption** ("safe in
+  this short window, for this slow-moving dataset"), not a silent one. For a fast-moving dataset
+  you'd keep cursor pagination, which is immune to mid-walk drift. Note your *shipped* code
+  (cursor) already sidesteps this entirely; the stability question only arises in the
+  *hypothetical* offset-parallel optimization.
 
 ---
 
@@ -949,3 +983,63 @@ the **process gap** (not just the bug), and close with the systemic fix.
   out to use a **deprecated API** and a pagination pattern that **doesn't fit PokeAPI's
   envelope** — the obvious path was a trap, and my adversarial-review process caught it before it
   shipped. *(Shows process catching a problem early.)*
+
+---
+
+## 13. Delivery Technique & Pitfalls (how to perform in the room)
+
+Content is only half of it — these are the *delivery* lessons from the live drill.
+
+### How to drive a diagram (the 3-move technique)
+
+When they ask "walk me through X" and you have a diagram up:
+1. **Name the shape first** — "this is the single-Get path, top to bottom." Orient them.
+2. **Sweep the happy path in one pass** — item in → validate → fetch → simplify → wrap → out.
+   Don't go deep yet; just trace the spine.
+3. **Then point at ONE callout and go deep** — pick the juiciest (validation-before-the-wire,
+   or simplify-after-fetch) and let *them* pull the next thread.
+
+The diagram carries completeness so you don't have to recite. You're driving the eye and
+editorializing — exactly what a staff engineer does in a design review. (Works even on a
+verbal-only call: you've internalized the *shape*, "there are basically five steps; the two
+interesting ones are…".)
+
+### Pitfall 1 — Answer the operation they actually asked about
+
+In the drill, a "walk me through **Get**" question twice got a **Get Many / Return All**
+answer (carryover from a prior tangent). It's a real failure mode: you have a great answer
+loaded and fire it at the wrong question. **Fix:** before answering, say which operation/path
+you're tracing ("this is the single Get…"), so you commit to the right one and they can
+redirect you early if you misheard.
+
+### Pitfall 2 — Keep caching in the right tense
+
+The **submitted** node has **no caching** (every fetch cold). The cache is **WIP on your fork**,
+not in what they're evaluating. If you narrate caching while pointing at the submitted artifact
+or diagram, a sharp interviewer asks "show me" and you're explaining a post-submission
+divergence mid-answer. **Fix — separate the tenses every time:** *"As submitted, every fetch is
+cold — deliberately, for the time budget. Since then, on my fork, I've been adding an
+execution-scoped cache so toggling simplify doesn't re-fetch — the natural next step."* Submitted
+= cold; fork = in progress. (The §3 diagrams are labeled "no cache" to match the submission;
+update them only when the cache lands.)
+
+### Pitfall 3 — Don't undersell with "fixed it in seconds"
+
+On the cold-build story (§12), speed is not the point — *why it was hidden* is. Spend the
+sentence on the root cause (green tests prove it **ran**, not that it **compiled cold**), then
+the systemic fix. "Fixed fast" makes a deep lesson sound trivial.
+
+### Pitfall 4 — Concede before you defend
+
+On challenged design decisions (Return All, simplify dropping data), lead by **agreeing with
+the kernel of truth** ("you're right the stubs are thin…"), *then* dismantle it. Jumping
+straight to defense reads as defensive. The strongest card on Return All is that you **overruled
+your own review team** — independent judgment, not just convention.
+
+### The meta-pattern from the drill
+
+Your instinct pulls toward the **conceptual/product** beats (simplify, caching, data lifecycle,
+GraphQL) — which you own cold — and away from the **mechanical** beats (the loop, validation,
+error handling, wrapping). For "walk me through it," **traverse the whole machine briefly** and
+go deep only when they pull a thread. The diagrams in §3 exist precisely so the mechanical beats
+are *on the page* and you don't have to hold them in your head.
