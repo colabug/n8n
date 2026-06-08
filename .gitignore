@@ -72,6 +72,7 @@ packages/cli/src/commands/export/outputs
 .superset
 .conductor
 .n8n
+pokemon-node.patch
 lefthook-local.yml
 .playwright-mcp
 stryker.log
