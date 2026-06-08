@@ -180,6 +180,8 @@ describe('Pokemon Node — typed interface shapes', () => {
 type MockContextParams = {
 	httpRequest?: jest.Mock;
 	nodeParams?: Record<string, unknown>;
+	/** Per-item override for the `nameOrId` parameter; falls back to `nodeParams.nameOrId`. */
+	perItemNameOrId?: Record<number, string>;
 	inputData?: Array<{ json: Record<string, unknown> }>;
 	continueOnFail?: boolean;
 };
@@ -188,13 +190,18 @@ function createMockContext(params: MockContextParams = {}): IExecuteFunctions {
 	const {
 		httpRequest = jest.fn(),
 		nodeParams = {},
+		perItemNameOrId,
 		inputData = [{ json: {} }],
 		continueOnFail = false,
 	} = params;
 	return {
 		getInputData: () => inputData,
-		getNodeParameter: (name: string, _index: number, fallback?: unknown) =>
-			name in nodeParams ? nodeParams[name] : fallback,
+		getNodeParameter: (name: string, index: number, fallback?: unknown) => {
+			if (name === 'nameOrId' && perItemNameOrId !== undefined) {
+				return perItemNameOrId[index] ?? nodeParams[name] ?? fallback;
+			}
+			return name in nodeParams ? nodeParams[name] : fallback;
+		},
 		getNode: () => ({
 			name: 'Pokemon',
 			type: 'n8n-nodes-base.pokemon',
@@ -861,38 +868,13 @@ describe('Pokemon Node — execute empty string input', () => {
 describe('Pokemon Node — execute get in-execution cache', () => {
 	it('should make exactly one HTTP call for three items with identical normalized nameOrId', async () => {
 		const mockHttpRequest = jest.fn().mockResolvedValue(PIKACHU_DETAIL);
-		// Three input items using different casing and whitespace — all normalize to 'pikachu'
-		const perItemNames: Record<number, string> = {
-			0: ' Pikachu ',
-			1: 'pikachu',
-			2: 'PIKACHU',
-		};
-		const ctx: IExecuteFunctions = {
-			getInputData: () => [{ json: {} }, { json: {} }, { json: {} }],
-			getNodeParameter: (name: string, index: number, fallback?: unknown) => {
-				if (name === 'operation') return 'get';
-				if (name === 'nameOrId') return perItemNames[index] ?? 'pikachu';
-				if (name === 'simplify') return true;
-				return fallback;
-			},
-			getNode: () => ({
-				name: 'Pokemon',
-				type: 'n8n-nodes-base.pokemon',
-				typeVersion: 1,
-				id: '1',
-				position: [0, 0] as [number, number],
-			}),
-			continueOnFail: () => false,
-			helpers: {
-				httpRequest: mockHttpRequest,
-				constructExecutionMetaData: (data: unknown[], opts: { itemData: { item: number } }) =>
-					data.map((d) => ({
-						...((d as Record<string, unknown>) ?? {}),
-						pairedItem: opts.itemData,
-					})),
-				returnJsonArray: (data: unknown[]) => data.map((d) => ({ json: d })),
-			},
-		} as unknown as IExecuteFunctions;
+		// ' Pikachu ', 'pikachu', 'PIKACHU' all normalize to 'pikachu'
+		const ctx = createMockContext({
+			httpRequest: mockHttpRequest,
+			nodeParams: { operation: 'get', simplify: true },
+			perItemNameOrId: { 0: ' Pikachu ', 1: 'pikachu', 2: 'PIKACHU' },
+			inputData: [{ json: {} }, { json: {} }, { json: {} }],
+		});
 		const node = new Pokemon();
 
 		const result = await node.execute.call(ctx);
@@ -904,5 +886,28 @@ describe('Pokemon Node — execute get in-execution cache', () => {
 		}
 		// Despite three inputs, the HTTP layer is called only once
 		expect(mockHttpRequest).toHaveBeenCalledTimes(1);
+	});
+
+	it('should make two HTTP calls for two items with distinct names', async () => {
+		const mockHttpRequest = jest
+			.fn()
+			.mockResolvedValueOnce(PIKACHU_DETAIL)
+			.mockResolvedValueOnce(BULBASAUR_DETAIL);
+		// Two different Pokemon — cache must NOT deduplicate across distinct names
+		const ctx = createMockContext({
+			httpRequest: mockHttpRequest,
+			nodeParams: { operation: 'get', simplify: true },
+			perItemNameOrId: { 0: 'pikachu', 1: 'bulbasaur' },
+			inputData: [{ json: {} }, { json: {} }],
+		});
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+
+		expect(result[0]).toHaveLength(2);
+		expect((result[0][0].json as Record<string, unknown>).name).toBe('pikachu');
+		expect((result[0][1].json as Record<string, unknown>).name).toBe('bulbasaur');
+		// Each distinct name requires its own HTTP call
+		expect(mockHttpRequest).toHaveBeenCalledTimes(2);
 	});
 });
