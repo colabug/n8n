@@ -270,22 +270,66 @@ input size does."**
 
 ### 3.6 Get Many — focused flow (limit vs. Return All + the cost split)
 
+Get Many lists Pokémon. Two modes: a **single page** (give me up to N) or **Return All** (walk
+every page). Each box: plain-English line on top, the real detail beneath.
+
 ```mermaid
 flowchart TD
-    A["execute: for loop over input items (1 for a manual run)"] --> B{"returnAll?"}
-    B -->|"false (default)"| C["clampLimit 1..100<br/>[!] runtime guard — expression inputs bypass the UI min/max"]
-    C --> D["ONE call: GET /pokemon?limit=N&offset=0<br/>[!] CHEAP — 1 request, ~100ms"]
-    B -->|"true"| E["pokemonApiRequestAllPages<br/>[!] sequential cursor walk, ~14 pages, ~1.4s<br/>cost scales with PAGES (~14), not Pokémon (~1300)"]
-    D --> F["extract results[] (drop count/next/previous envelope)<br/>[!] each item = name + URL STUB only"]
+    A["<b>list Pokémon for this item</b><br/><i>execute() — for loop over input items, 1 for a manual run</i>"] --> B{"<b>did the user turn on 'Return All'?</b><br/><i>returnAll flag</i>"}
+    B -->|"no (default)"| C["<b>keep the limit sane</b><br/>clamp to 1–100 even if an expression sent something wild<br/><i>clampLimit()</i>"]
+    C --> D["<b>ONE quick call — give me up to N names</b><br/>[!] CHEAP: 1 request, ~100ms<br/><i>GET /pokemon?limit=N&offset=0</i>"]
+    B -->|"yes"| E["<b>walk every page until there are no more</b><br/>[!] ~14 pages, ~1.4s — cost grows with PAGES (~14), not Pokémon (~1300)<br/><i>pokemonApiRequestAllPages() — see 3.6a</i>"]
+    D --> F["<b>keep just the list, throw away the envelope</b><br/>each entry is a STUB: name + URL only, no stats<br/><i>response.results — drop count/next/previous</i>"]
     E --> F
-    F --> G["wrap with pairedItem -> output"]
+    F --> G["<b>package + tag to input -> next node</b><br/><i>constructExecutionMetaData (pairedItem)</i>"]
 
-    G -.composes into.-> N["Get Many -> Loop -> Get<br/>[!] THE EXPENSIVE PATH: N+1, ~1300 calls, ~2min<br/>unsimplified ~780MB — this is a USER workflow, not the node"]
+    G -.the user can chain this into.-> N["<b>Get Many -> Loop Over Items -> Get</b><br/>[!] THE EXPENSIVE PATH: enrich every stub = N+1, ~1300 calls, ~2 min<br/>unsimplified ~780MB — this is a USER-built workflow, NOT the node doing it"]
 ```
 
-The key thing to say at this diagram: **Return All itself is cheap (~14 calls); the expensive
-thing is the user chaining it into per-item enrichment (N+1).** That separation is *why* list
-and detail are two operations.
+**The one thing to say here:** Return All *itself* is cheap (~14 calls). The expensive thing is
+when the **user** chains it into per-item enrichment (the N+1 path on the right). Keeping list
+and detail as separate operations is what makes that cost a visible, deliberate choice instead
+of a hidden one.
+
+#### 3.6a — How Return All knows when to stop (the pagination walk)
+
+This is the "when do you stop?" detail. PokeAPI's list response is an envelope —
+`{ count, next, previous, results }` — where **`next` is the URL of the following page, or
+`null` once you're on the last page.** So the walk follows `next` until the API says "no more."
+
+```mermaid
+flowchart TD
+    S["<b>start at page 1</b><br/><i>url = /pokemon?limit=100&offset=0</i>"] --> Q{"<b>did the last response give a 'next' link?</b><br/>(null means the API says we're done)<br/><i>while url !== null</i>"}
+    Q -->|"no more (next is null)"| DONE["<b>done — return everything collected</b><br/>[!] the LAST page still has real results AND next=null"]
+    Q -->|"yes, here's the next page"| GUARD{"<b>have we somehow gone past ~14 pages?</b><br/>[!] safety net — real run is ~14, cap is 50<br/><i>pageCount >= 50</i>"}
+    GUARD -->|"way too many (>= 50)"| STOP["<b>abort with a clear error</b><br/>a 'next' that never ends = bug or bad actor<br/><i>throw NodeOperationError</i>"]
+    GUARD -->|"normal"| FETCH["<b>fetch this page, add its results</b><br/><i>pokemonApiRequest(url); append results; url = response.next</i>"]
+    FETCH --> Q
+```
+
+**Why follow `next` instead of 'loop until a page comes back empty'?** Because PokeAPI's **last
+page has real results *and* `next: null`.** If you stopped on "empty page," you'd process the
+last page, then make **one extra wasted request** to discover the page *after* it is empty.
+Following `next` stops exactly on time — the server tells you you're done.
+
+**Is 'wait for null' best practice, or a PokeAPI quirk?** Best practice. Here's the spectrum of
+how APIs signal "you're done," strongest to weakest:
+
+| Pattern | How you stop | Robustness | Who uses it |
+|---|---|---|---|
+| **Cursor / token** | follow an opaque `next_cursor` until null/absent | **Best** — server owns position; safe if data shifts mid-walk | Stripe, Slack, Twitter/X |
+| **`next`-link (PokeAPI's)** | follow the `next` **URL** until null | **Best** — same as cursor, link-shaped | PokeAPI, GitHub (`Link` header) |
+| **Offset / limit** | `offset += limit`; stop on a short page or past `count` | **OK** — simple, but can skip/duplicate if data changes; you compute offsets | Many older REST APIs |
+| **Loop until empty** | keep going until a page is empty | **Weakest** — always one wasted trailing request; can't parallelize | Last resort when no cursor/count given |
+
+> **SAY THIS:** "Following `next` until it's null is cursor/link-based pagination — the modern
+> standard Stripe, Slack, and GitHub all use. It's not a PokeAPI quirk; it's the robust pattern
+> because the *server* owns 'where am I,' so I can't skip or double-count if records shift. The
+> simpler alternative — offset-and-stop-when-short — is more fragile, and 'loop until empty' is
+> a last resort when the API gives you no cursor. PokeAPI hands me a `next` URL, so I follow it —
+> using the API the way it's meant to be paged. The 50-page cap is just a safety net: a real run
+> is ~14 pages, so 50 is generous headroom that turns a runaway 'next' that never ends — a bug
+> or bad actor — into a clean error instead of an infinite loop."
 
 ### 3.7 Code-level function-call sequence (point here to show the call chain)
 
