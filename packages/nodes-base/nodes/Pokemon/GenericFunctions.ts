@@ -153,8 +153,8 @@ export async function pokemonApiRequestAllPages(
 				`Pagination exceeded ${PAGINATION_CIRCUIT_BREAKER_LIMIT} pages. This may indicate an API issue.`,
 			);
 		}
-		const response = await (pokemonApiRequest<IPokemonListResponse>).call(this, url);
-		allResults.push(...response.results);
+		const response = (await pokemonApiRequest.call(this, url)) as IPokemonListResponse;
+		allResults.push.apply(allResults, response.results);
 		url = response.next;
 		pageCount++;
 	}

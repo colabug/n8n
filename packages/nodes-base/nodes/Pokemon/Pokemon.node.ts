@@ -42,7 +42,7 @@ export class Pokemon implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
-		const operation = this.getNodeParameter('operation', 0) as string;
+		const operation = this.getNodeParameter('operation', 0);
 
 		if (operation === 'get') {
 			for (let i = 0; i < items.length; i++) {
@@ -51,16 +51,17 @@ export class Pokemon implements INodeType {
 					const simplify = this.getNodeParameter('simplify', i, true) as boolean;
 					const nameOrId = validateNameOrId(this, rawNameOrId, i);
 					const url = `${POKEAPI_BASE_URL}/pokemon/${nameOrId}`;
-					const responseData = await (pokemonApiRequest<IPokemonDetailResponse>).call(
+					const responseData = (await pokemonApiRequest.call(
 						this,
 						url,
 						nameOrId,
-					);
+					)) as IPokemonDetailResponse;
 					const outputData = simplify
 						? toDataObject(simplifyPokemonData(responseData))
-						: (responseData as IDataObject);
-					returnData.push(
-						...this.helpers.constructExecutionMetaData(this.helpers.returnJsonArray([outputData]), {
+						: ({ ...responseData } as IDataObject);
+					returnData.push.apply(
+						returnData,
+						this.helpers.constructExecutionMetaData(this.helpers.returnJsonArray([outputData]), {
 							itemData: { item: i },
 						}),
 					);
@@ -78,25 +79,27 @@ export class Pokemon implements INodeType {
 		} else if (operation === 'getAll') {
 			for (let i = 0; i < items.length; i++) {
 				try {
-					const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+					const returnAll = this.getNodeParameter('returnAll', i);
 
 					let results: IDataObject[];
 					if (returnAll) {
-						results = (await pokemonApiRequestAllPages.call(this)) as IDataObject[];
+						results = (await pokemonApiRequestAllPages.call(this)).map(
+							(item) => ({ ...item }) as IDataObject,
+						);
 					} else {
-						const limit = clampLimit(this.getNodeParameter('limit', i) as number);
-						const response = await (pokemonApiRequest<IPokemonListResponse>).call(
+						const limit = clampLimit(this.getNodeParameter('limit', i));
+						const response = (await pokemonApiRequest.call(
 							this,
 							`${POKEAPI_BASE_URL}/pokemon?limit=${limit}&offset=0`,
-						);
-						results = response.results as IDataObject[];
+						)) as IPokemonListResponse;
+						results = response.results.map((item) => ({ ...item }) as IDataObject);
 					}
 
 					const executionData = this.helpers.constructExecutionMetaData(
 						this.helpers.returnJsonArray(results),
 						{ itemData: { item: i } },
 					);
-					returnData.push(...executionData);
+					returnData.push.apply(returnData, executionData);
 				} catch (error) {
 					if (this.continueOnFail()) {
 						returnData.push({

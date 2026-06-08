@@ -1,7 +1,11 @@
 import type { IExecuteFunctions } from 'n8n-workflow';
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
-import { Pokemon } from '../Pokemon.node';
+import type {
+	IPokemonDetailResponse,
+	IPokemonListResponse,
+	IPokemonSimplified,
+} from '../GenericFunctions';
 import {
 	clampLimit,
 	pokemonApiRequest,
@@ -9,6 +13,7 @@ import {
 	simplifyPokemonData,
 	validateNameOrId,
 } from '../GenericFunctions';
+import { Pokemon } from '../Pokemon.node';
 import {
 	PIKACHU_DETAIL,
 	PIKACHU_DETAIL_NULL_SPRITE,
@@ -123,7 +128,7 @@ describe('Pokemon Node — typed interface shapes', () => {
 	it('should export IPokemonListResponse interface (compiles with correct shape)', () => {
 		// Import the type to ensure it exists and compiles
 		// This test verifies the TypeScript interface exists and has the expected shape
-		const mockResponse: import('../GenericFunctions').IPokemonListResponse = {
+		const mockResponse: IPokemonListResponse = {
 			count: 1302,
 			next: 'https://pokeapi.co/api/v2/pokemon?offset=20&limit=20',
 			previous: null,
@@ -135,7 +140,7 @@ describe('Pokemon Node — typed interface shapes', () => {
 	});
 
 	it('should export IPokemonDetailResponse interface', () => {
-		const mockDetail: import('../GenericFunctions').IPokemonDetailResponse = {
+		const mockDetail: IPokemonDetailResponse = {
 			id: 25,
 			name: 'pikachu',
 			height: 4,
@@ -153,7 +158,7 @@ describe('Pokemon Node — typed interface shapes', () => {
 	});
 
 	it('should export IPokemonSimplified interface', () => {
-		const mockSimplified: import('../GenericFunctions').IPokemonSimplified = {
+		const mockSimplified: IPokemonSimplified = {
 			id: 25,
 			name: 'pikachu',
 			height: 4,
