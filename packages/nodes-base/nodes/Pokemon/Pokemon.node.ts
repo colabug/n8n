@@ -45,17 +45,26 @@ export class Pokemon implements INodeType {
 		const operation = this.getNodeParameter('operation', 0);
 
 		if (operation === 'get') {
+			// Cache raw API responses for the lifetime of this execute() call.
+			// Keyed by the normalized nameOrId (trimmed + lowercased) from validateNameOrId,
+			// so ' Pikachu ', 'pikachu', and 'PIKACHU' all share one entry.
+			const cache = new Map<string, IPokemonDetailResponse>();
+
 			for (let i = 0; i < items.length; i++) {
 				try {
 					const rawNameOrId = this.getNodeParameter('nameOrId', i) as string;
 					const simplify = this.getNodeParameter('simplify', i, true) as boolean;
 					const nameOrId = validateNameOrId(this, rawNameOrId, i);
 					const url = `${POKEAPI_BASE_URL}/pokemon/${nameOrId}`;
-					const responseData = (await pokemonApiRequest.call(
-						this,
-						url,
-						nameOrId,
-					)) as IPokemonDetailResponse;
+					let responseData = cache.get(nameOrId);
+					if (responseData === undefined) {
+						responseData = (await pokemonApiRequest.call(
+							this,
+							url,
+							nameOrId,
+						)) as IPokemonDetailResponse;
+						cache.set(nameOrId, responseData);
+					}
 					const outputData = simplify
 						? toDataObject(simplifyPokemonData(responseData))
 						: ({ ...responseData } as IDataObject);

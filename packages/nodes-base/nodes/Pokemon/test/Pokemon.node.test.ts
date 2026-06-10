@@ -180,6 +180,8 @@ describe('Pokemon Node — typed interface shapes', () => {
 type MockContextParams = {
 	httpRequest?: jest.Mock;
 	nodeParams?: Record<string, unknown>;
+	/** Per-item override for the `nameOrId` parameter; falls back to `nodeParams.nameOrId`. */
+	perItemNameOrId?: Record<number, string>;
 	inputData?: Array<{ json: Record<string, unknown> }>;
 	continueOnFail?: boolean;
 };
@@ -188,13 +190,18 @@ function createMockContext(params: MockContextParams = {}): IExecuteFunctions {
 	const {
 		httpRequest = jest.fn(),
 		nodeParams = {},
+		perItemNameOrId,
 		inputData = [{ json: {} }],
 		continueOnFail = false,
 	} = params;
 	return {
 		getInputData: () => inputData,
-		getNodeParameter: (name: string, _index: number, fallback?: unknown) =>
-			name in nodeParams ? nodeParams[name] : fallback,
+		getNodeParameter: (name: string, index: number, fallback?: unknown) => {
+			if (name === 'nameOrId' && perItemNameOrId !== undefined) {
+				return perItemNameOrId[index] ?? nodeParams[name] ?? fallback;
+			}
+			return name in nodeParams ? nodeParams[name] : fallback;
+		},
 		getNode: () => ({
 			name: 'Pokemon',
 			type: 'n8n-nodes-base.pokemon',
@@ -853,5 +860,54 @@ describe('Pokemon Node — execute empty string input', () => {
 
 		await expect(node.execute.call(ctx)).rejects.toThrow(NodeOperationError);
 		expect(mockHttpRequest).not.toHaveBeenCalled();
+	});
+});
+
+// ─── execute() in-execution cache deduplication ──────────────────────────────
+
+describe('Pokemon Node — execute get in-execution cache', () => {
+	it('should make exactly one HTTP call for three items with identical normalized nameOrId', async () => {
+		const mockHttpRequest = jest.fn().mockResolvedValue(PIKACHU_DETAIL);
+		// ' Pikachu ', 'pikachu', 'PIKACHU' all normalize to 'pikachu'
+		const ctx = createMockContext({
+			httpRequest: mockHttpRequest,
+			nodeParams: { operation: 'get', simplify: true },
+			perItemNameOrId: { 0: ' Pikachu ', 1: 'pikachu', 2: 'PIKACHU' },
+			inputData: [{ json: {} }, { json: {} }, { json: {} }],
+		});
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+
+		// All three items return pikachu data
+		expect(result[0]).toHaveLength(3);
+		for (const item of result[0]) {
+			expect((item.json as Record<string, unknown>).name).toBe('pikachu');
+		}
+		// Despite three inputs, the HTTP layer is called only once
+		expect(mockHttpRequest).toHaveBeenCalledTimes(1);
+	});
+
+	it('should make two HTTP calls for two items with distinct names', async () => {
+		const mockHttpRequest = jest
+			.fn()
+			.mockResolvedValueOnce(PIKACHU_DETAIL)
+			.mockResolvedValueOnce(BULBASAUR_DETAIL);
+		// Two different Pokemon — cache must NOT deduplicate across distinct names
+		const ctx = createMockContext({
+			httpRequest: mockHttpRequest,
+			nodeParams: { operation: 'get', simplify: true },
+			perItemNameOrId: { 0: 'pikachu', 1: 'bulbasaur' },
+			inputData: [{ json: {} }, { json: {} }],
+		});
+		const node = new Pokemon();
+
+		const result = await node.execute.call(ctx);
+
+		expect(result[0]).toHaveLength(2);
+		expect((result[0][0].json as Record<string, unknown>).name).toBe('pikachu');
+		expect((result[0][1].json as Record<string, unknown>).name).toBe('bulbasaur');
+		// Each distinct name requires its own HTTP call
+		expect(mockHttpRequest).toHaveBeenCalledTimes(2);
 	});
 });
